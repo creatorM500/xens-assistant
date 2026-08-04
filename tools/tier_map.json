@@ -1,0 +1,5 @@
+{
+  "__comment__": "Edit this file to move tools between tiers. No code changes needed.",
+  "__usage__": "Tools default to 'free'. Set any tool to 'pro' or 'premium'. Save and restart.",
+  "__all_default_free__": true
+}

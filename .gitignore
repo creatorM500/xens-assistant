@@ -1,0 +1,23 @@
+# Build artifacts
+build/
+dist/
+*.spec.bak
+
+# Build logs
+build*_log.txt
+build_err.txt
+build_log.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local user data
+tools_temp.txt
+
+# OS
+Thumbs.db
+Desktop.ini
