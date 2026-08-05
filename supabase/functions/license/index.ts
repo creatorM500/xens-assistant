@@ -31,8 +31,8 @@ const FREE_CHAT_CAP = parseInt(Deno.env.get("XENS_FREE_CHAT_CAP") ?? "300", 10) 
 
 const DEFAULT_MODELS = {
   free: "mistral-small-2506",
-  pro: "mistralai/mistral-large-latest",
-  premium: "mistralai/mistral-large-latest",
+  pro: "mistralai/mistral-large",
+  premium: "anthropic/claude-sonnet-5",
 };
 
 const CORS = {
@@ -86,14 +86,14 @@ async function verifyToken(token: string): Promise<Record<string, unknown> | nul
 }
 
 // ---- Supabase helpers (service_role bypassa RLS) ---------------------------
+function sbHeaders(): Record<string, string> {
+  return { apikey: SERVICE_ROLE, authorization: `Bearer ${SERVICE_ROLE}`, "content-type": "application/json" };
+}
+
 async function rpc(name: string, args: Record<string, unknown>): Promise<{ status: number; data: any }> {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
     method: "POST",
-    headers: {
-      authorization: `Bearer ${SERVICE_ROLE}`,
-      "content-type": "application/json",
-      prefer: "return=representation",
-    },
+    headers: { ...sbHeaders(), prefer: "return=representation" },
     body: JSON.stringify(args),
   });
   return { status: r.status, data: await r.json().catch(() => null) };
@@ -102,7 +102,7 @@ async function rpc(name: string, args: Record<string, unknown>): Promise<{ statu
 async function fetchLicense(serial: string): Promise<any> {
   const r = await fetch(
     `${SUPABASE_URL}/rest/v1/licenses?select=id,tier,revoked,expires_at&key=eq.${encodeURIComponent(serial)}&limit=1`,
-    { headers: { authorization: `Bearer ${SERVICE_ROLE}` } },
+    { headers: sbHeaders() },
   );
   const rows = await r.json().catch(() => null);
   return Array.isArray(rows) ? (rows[0] ?? null) : null;
@@ -111,7 +111,7 @@ async function fetchLicense(serial: string): Promise<any> {
 async function fetchUsage(licenseId: string, period: string): Promise<any> {
   const r = await fetch(
     `${SUPABASE_URL}/rest/v1/usage?select=chats&license_id=eq.${licenseId}&period=eq.${period}&limit=1`,
-    { headers: { authorization: `Bearer ${SERVICE_ROLE}` } },
+    { headers: sbHeaders() },
   );
   const rows = await r.json().catch(() => null);
   return Array.isArray(rows) ? (rows[0] ?? null) : null;
@@ -196,7 +196,7 @@ async function handleChat(req: Request, auth: string, body: any): Promise<Respon
     return json(500, { error: "Server has no API key configured for this tier" });
   }
 
-  const llmPayload: Record<string, unknown> = { model, messages, temperature: 0.3 };
+  const llmPayload: Record<string, unknown> = { model, messages, temperature: 0.3, max_tokens: 2000 };
   const tools = body?.tools;
   if (Array.isArray(tools) && tools.length > 0) llmPayload.tools = tools;
 

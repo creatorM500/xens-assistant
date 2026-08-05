@@ -1,0 +1,4 @@
+project_id = "xens-assistant"
+
+[functions.license]
+verify_jwt = false
