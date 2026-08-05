@@ -17,6 +17,7 @@ venv/
 
 # Local user data
 tools_temp.txt
+server/data/
 
 # OS
 Thumbs.db

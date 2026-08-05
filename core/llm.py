@@ -28,6 +28,15 @@ _provider = None
 def get_provider():
     global _provider
     if _provider is None:
+        from ..core import license as lic
+        st = lic.get_state()
+        if st.get("online") and st.get("token"):
+            url = st.get("server_url") or lic.get_server_url()
+            if url:
+                from ..llm.remote import RemoteProvider
+                _provider = RemoteProvider(url, st["token"])
+                logger.info("Using RemoteProvider (online license) via %s", url)
+                return _provider
         from ..core.config import config
         _provider = create_provider(config)
     return _provider
@@ -176,7 +185,7 @@ async def run_tool_loop(messages, max_iterations=5, tier="free"):
             try:
                 parsed = json.loads(content) if isinstance(content, str) else content
                 if isinstance(parsed, dict):
-                    is_success = parsed.get("success", False)
+                    is_success = parsed.get("success", True)
                     yield {"type": "tool_result", "name": name, "success": is_success}
                     if "screenshot" in parsed:
                         yield {"type": "screenshot", "base64": parsed["screenshot"]["base64"],

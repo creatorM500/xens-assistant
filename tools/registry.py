@@ -183,7 +183,7 @@ class ToolRegistry:
                         raise ToolError(f"Parameter '{key}' must be a number", code="INVALID_TYPE")
                 if "enum" in prop and value not in prop["enum"]:
                     raise ToolError(f"Parameter '{key}' must be one of: {', '.join(prop['enum'])}", code="INVALID_ENUM")
-            validated[key] = value
+                validated[key] = value
         return validated
 
     @property
@@ -211,12 +211,49 @@ def _tier_gte(current: str, required: str) -> bool:
 registry = ToolRegistry()
 
 
+def _schema_from_signature(fn) -> dict:
+    """Build a JSON Schema from a function signature when no explicit parameters are given."""
+    import inspect, typing
+    sig = inspect.signature(fn)
+    props: dict = {}
+    required: list = []
+    for name, p in sig.parameters.items():
+        if p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+            continue
+        ann = p.annotation
+        origin = None
+        try:
+            origin = typing.get_origin(ann)
+        except Exception:
+            origin = None
+        if origin is not None:
+            args = typing.get_args(ann)
+            if args and args[0] is not type(None):
+                ann = args[0]
+        ptype = "string"
+        if ann is int:
+            ptype = "integer"
+        elif ann is bool:
+            ptype = "boolean"
+        elif ann is float:
+            ptype = "number"
+        elif ann in (list, tuple):
+            ptype = "array"
+        elif ann is dict:
+            ptype = "object"
+        if p.default is inspect.Parameter.empty:
+            required.append(name)
+        props[name] = {"type": ptype, "description": name}
+    return {"type": "object", "properties": props, "required": required}
+
+
 def register(name=None, description=None, parameters=None, timeout=None, retry_on_error=False, tier=None, internal=False):
     """Decorator that auto-registers a function as a tool when the module is imported."""
     def decorator(fn):
         _name = name or fn.__name__
         _desc = description or fn.__doc__ or ""
-        _params = parameters or {"type": "object", "properties": {}}
+        params = parameters if parameters is not None else _schema_from_signature(fn)
+        _params = params or {"type": "object", "properties": {}}
         _tier = tier or DEFAULT_TIER
         registry.register(_name, fn, _desc, _params, timeout or 60, retry_on_error or False, _tier, internal)
         return fn

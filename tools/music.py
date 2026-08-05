@@ -4,7 +4,7 @@ music.py — Spotify playback control.
 OAuth via localhost HTTP server. Tokens stored in ~/.xens/spotify_token.json.
 Ported from Xens Omni spotify_control.py with path cleanup and JSON returns.
 """
-import json, logging, os, threading, time, webbrowser
+import asyncio, json, logging, os, threading, time, webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Optional
@@ -93,8 +93,9 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         pass
 
 
-@register(name="authenticate_spotify", description="Authenticate with Spotify via OAuth. Opens browser for login.", tier="free")
-def authenticate_spotify(client_id: str = "", client_secret: str = "") -> str:
+# Spotify authenticator DISABLED for now: tool removed from registry to avoid blocking.
+# @register(name="authenticate_spotify", description="Authenticate with Spotify via OAuth. Opens browser for login. Times out after 120s if not completed.", tier="free", timeout=150)
+async def authenticate_spotify(client_id: str = "", client_secret: str = "") -> str:
     global _CLIENT_ID, _CLIENT_SECRET, _auth_code, _server_instance
     if not HAS_REQUESTS:
         return json.dumps({"error": "requests not installed (pip install requests)", "success": False})
@@ -102,12 +103,14 @@ def authenticate_spotify(client_id: str = "", client_secret: str = "") -> str:
         _CLIENT_ID = client_id
     if client_secret:
         _CLIENT_SECRET = client_secret
-    cfg = {"client_id": _CLIENT_ID, "client_secret": _CLIENT_SECRET}
-    _save_config(cfg)
+    _save_config({"client_id": _CLIENT_ID, "client_secret": _CLIENT_SECRET})
     import threading
     from http.server import HTTPServer
     _auth_code = None
-    server = HTTPServer(("localhost", 8888), _CallbackHandler)
+    try:
+        server = HTTPServer(("localhost", 8888), _CallbackHandler)
+    except OSError as e:
+        return json.dumps({"error": f"Could not bind port 8888 (maybe already in use): {e}", "success": False})
     _server_instance = server
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
@@ -115,13 +118,17 @@ def authenticate_spotify(client_id: str = "", client_secret: str = "") -> str:
         f"?response_type=code&client_id={_CLIENT_ID}"
         f"&redirect_uri={_REDIRECT_URI}&scope={_SCOPES.replace(' ', '%20')}")
     webbrowser.open(auth_url)
-    server.timeout = 120
-    while server.timeout > 0:
+    deadline = time.time() + 120
+    while time.time() < deadline:
         if _auth_code:
             break
-        time.sleep(0.5)
-    if not _auth_code:
+        await asyncio.sleep(0.3)
+    try:
         server.shutdown()
+        server.server_close()
+    except Exception:
+        pass
+    if not _auth_code:
         return json.dumps({"error": "Authentication cancelled or timed out", "success": False})
     r = requests.post("https://accounts.spotify.com/api/token",
         data={"grant_type": "authorization_code", "code": _auth_code,

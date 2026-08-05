@@ -6,6 +6,7 @@ from aiohttp import web
 
 from ..core.config import PORT
 from ..core.llm import run_tool_loop
+from ..core import license as lic
 from ..memory.session import Session
 from ..memory.profile import profile
 from ..memory.summarizer import summarize_conversation, extract_user_info
@@ -47,6 +48,13 @@ class WebServer:
                         text = data.get("text", "").strip()
                         if not text:
                             continue
+                        gate = lic.gate_status()
+                        if not gate["allowed"]:
+                            await ws.send_json({"type": "license", "state": gate["state"]})
+                            await ws.send_json({"type": "done"})
+                            continue
+                        if gate["reason"] == "trial":
+                            lic.record_trial_use()
                         profile.record_interaction()
                         self._session.add("user", text)
                         messages.append({"role": "user", "content": text})
@@ -86,6 +94,30 @@ class WebServer:
                         profile.load()
                         ctx = profile.get_memory_context()
                         await ws.send_json({"type": "profile", "content": ctx})
+
+                    elif data.get("type") == "get_license":
+                        await ws.send_json({"type": "license", "state": lic.get_state()})
+
+                    elif data.get("type") == "activate":
+                        key = data.get("key", "").strip()
+                        if not key:
+                            await ws.send_json({"type": "license", "state": lic.get_state(), "result": {"success": False, "error": "No key provided"}})
+                        else:
+                            server_url = lic.get_server_url()
+                            result = None
+                            if server_url:
+                                result = lic.activate_online(key, server_url)
+                                if not result["success"] and result.get("status") in ("no_server", "unreachable"):
+                                    result = None
+                            if result is None:
+                                result = lic.activate(key)
+                            if result["success"]:
+                                registry.set_tier(result["tier"])
+                            await ws.send_json({"type": "license", "state": lic.get_state(), "result": result})
+
+                    elif data.get("type") == "deactivate":
+                        lic.deactivate()
+                        await ws.send_json({"type": "license", "state": lic.get_state(), "result": {"success": True, "status": "deactivated"}})
 
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     logger.error(f"WS error: {ws.exception()}")

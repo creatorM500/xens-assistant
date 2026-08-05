@@ -65,6 +65,9 @@ def _exec_python(code):
     if error:
         return json.dumps({"error": error, "success": False})
 
+    if getattr(sys, "frozen", False):
+        return _exec_python_embedded(code)
+
     if "\n" not in code.strip() and not code.strip().startswith(("print", "return", "import", "from", "def ", "class ", "if ", "for ", "while ", "try:", "with ", "raise")):
         wrapped = f"print(repr({code.strip()}))"
         try:
@@ -87,6 +90,18 @@ def _exec_python(code):
         return json.dumps({"error": "Python interpreter not found", "success": False})
     except Exception as e:
         return json.dumps({"error": str(e), "success": False})
+
+def _exec_python_embedded(code):
+    import io, contextlib
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            exec(compile(code, "<sandbox>", "exec"), dict(_SAFE_GLOBALS))
+        output = buf.getvalue()
+        return json.dumps({"success": True, "returncode": 0, "output": output[:_MAX_OUTPUT]})
+    except Exception as e:
+        return json.dumps({"success": False, "returncode": 1, "error": f"{type(e).__name__}: {e}"})
+
 
 def _exec_javascript(code):
     try:

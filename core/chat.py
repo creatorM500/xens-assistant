@@ -1,16 +1,17 @@
-import asyncio, sys, logging, shutil, json
+import asyncio, sys, logging, shutil, json, time, inspect
 
 from ..core.llm import run_tool_loop
 from ..memory.session import Session
 from ..memory.profile import profile
 from ..memory.summarizer import summarize_conversation, extract_user_info
 from ..personality import build_system
-from ..core.config import USER_NAME, config, CONFIG_FILE
+from ..core.config import USER_NAME, config, CONFIG_FILE, save as save_config
 from ..tools.registry import registry
 from ..tools.proactive import get_engine as get_proactive
 from ..core.ratelimit import ratelimiter
 from ..core.tier_config import tier_config
 from ..core.updater import get_current_version
+from ..core import license as lic
 
 logger = logging.getLogger("xens.chat")
 
@@ -34,6 +35,9 @@ def _mask(key: str) -> str:
 class ConsoleChat:
     def __init__(self, session=None):
         self._session = session or Session("default")
+        self._started = time.monotonic()
+        self._last_call = None
+        self._last_output = None
 
     def _build_messages(self):
         profile.load()
@@ -50,7 +54,8 @@ class ConsoleChat:
         used, limit = ratelimiter.get_usage(tier)
         providers = self._provider_status()
         print(f"\n  {_BOLD}Xens Assistant CLI v{get_current_version()}{_RESET}")
-        print(f"  {_GRAY}Tools:{_RESET} {registry.count}/{registry.count_total}  "
+        print(f"  {_GRAY}License:{_RESET} {lic.format_status_line()}  "
+              f"{_GRAY}Tools:{_RESET} {registry.count}/{registry.count_total}  "
               f"{_GRAY}Tier:{_RESET} {tier}  {_GRAY}Usage:{_RESET} {used}/{limit} req")
         print(f"  {_GRAY}Providers:{_RESET} {providers}")
         print(f"  {_GRAY}Config:{_RESET} {CONFIG_FILE}")
@@ -65,6 +70,74 @@ class ConsoleChat:
         if not parts:
             parts.append(f"{_RED}no API keys — chat disabled, /test works{_RESET}")
         return ", ".join(parts)
+
+    def _sample_args(self, entry) -> dict:
+        """Build sample/auto args from a tool's JSON schema (defaults win over typed placeholders)."""
+        params = entry.get("parameters", {})
+        props = params.get("properties", {})
+        required = params.get("required", [])
+        args = {}
+        for key, prop in props.items():
+            if "default" in prop:
+                args[key] = prop["default"]
+                continue
+            if key in required:
+                ptype = prop.get("type", "string")
+                if ptype == "string":
+                    args[key] = "test"
+                elif ptype == "integer":
+                    args[key] = 1
+                elif ptype == "number":
+                    args[key] = 1.0
+                elif ptype == "boolean":
+                    args[key] = True
+                elif ptype == "array":
+                    args[key] = []
+                elif ptype == "object":
+                    args[key] = {}
+        return args
+
+    def _format_tool_info(self, name: str, entry: dict) -> str:
+        """Render a full tool card (schema, defaults, tier, timeout, source)."""
+        lines = []
+        tier = entry.get("tier", "free")
+        avail = "✓ available" if registry._is_available(name) else f"✗ needs tier '{tier}'"
+        lines.append(f"  {_CYAN}Tool: {name}{_RESET} — {avail}")
+        lines.append(f"  {_GRAY}Description:{_RESET} {entry.get('description') or '(none)'}")
+        lines.append(f"  {_GRAY}Tier:{_RESET} {tier}  {_GRAY}Timeout:{_RESET} {entry.get('timeout', 60)}s  "
+                     f"{_GRAY}Retry:{_RESET} {entry.get('retry_on_error', False)}  "
+                     f"{_GRAY}Internal:{_RESET} {entry.get('internal', False)}")
+        params = entry.get("parameters", {})
+        props = params.get("properties", {})
+        required = params.get("required", [])
+        if props:
+            lines.append(f"  {_GRAY}Parameters:{_RESET}")
+            for key, prop in props.items():
+                req = " *" if key in required else ""
+                default_hint = ""
+                ptype = prop.get("type", "?")
+                dflt = prop.get("default")
+                if dflt is not None:
+                    default_hint = f"  {_GRAY}(default {json.dumps(dflt, ensure_ascii=False)}){_RESET}"
+                enum_hint = ""
+                if prop.get("enum"):
+                    enum_hint = f"  {_GRAY}one of: {', '.join(map(str, prop['enum']))}{_RESET}"
+                lines.append(f"      {key:<24} {ptype}{req}{default_hint}{enum_hint}")
+        else:
+            lines.append(f"  {_GRAY}Parameters:{_RESET} none")
+        try:
+            sig = inspect.signature(entry["handler"])
+            real_defaults = {
+                p.name: p.default
+                for p in sig.parameters.values()
+                if p.default is not inspect.Parameter.empty
+            }
+            if real_defaults:
+                lines.append(f"  {_GRAY}Signature defaults:{_RESET} "
+                             f"{', '.join(f'{k}={json.dumps(v, ensure_ascii=False)}' for k, v in real_defaults.items())}")
+        except Exception:
+            pass
+        return "\n".join(lines) + "\n"
 
     async def run(self):
         name = profile.name or USER_NAME or "there"
@@ -106,6 +179,19 @@ class ConsoleChat:
             if raw.startswith("/"):
                 await self._handle_command(raw, messages)
                 continue
+
+            gate = lic.gate_status()
+            if not gate["allowed"]:
+                st = gate["state"]
+                if st["status"] == "locked":
+                    print(f"  {_RED}Trial used up ({st['trial_used']}/{st['trial_limit']}). Activate Xens to keep using it.{_RESET}")
+                    print(f"  {_YELLOW}Type /activate <serial-key> (or contact the seller to buy one).{_RESET}\n")
+                elif st["status"] == "expired":
+                    print(f"  {_RED}Your license expired. Type /activate with a new key.{_RESET}\n")
+                continue
+
+            if gate["reason"] == "trial":
+                lic.record_trial_use()
 
             profile.record_interaction()
             self._session.add("user", raw)
@@ -230,54 +316,320 @@ class ConsoleChat:
 
         elif cmd == "test":
             if not args:
-                print(f"  {_YELLOW}Usage: /test <tool> [json args]{_RESET}\n"
+                print(f"  {_YELLOW}Usage: /test <tool> [json args] [--raw]{_RESET}\n"
                       f"  {_GRAY}Example: /test system_info{_RESET}\n"
-                      f"  {_GRAY}Example: /test write_file '{{\"path\": \"prueba.txt\", \"content\": \"hola\"}}'{_RESET}\n")
-            else:
-                tool = args[0]
-                raw_args = " ".join(args[1:]) if len(args) > 1 else "{}"
-                try:
-                    parsed_args = json.loads(raw_args) if raw_args.strip() else {}
-                    if not isinstance(parsed_args, dict):
-                        raise ValueError("args must be a JSON object")
-                except Exception as e:
-                    print(f"  {_RED}Invalid JSON args: {e}{_RESET}\n")
-                    return
-                if tool not in registry._tools:
-                    print(f"  {_RED}Tool '{tool}' not found. Use /tools to list.{_RESET}\n")
-                    return
-                if tool not in registry.tool_names and not registry._tools[tool].get("internal"):
-                    print(f"  {_RED}Tool '{tool}' not available in tier '{registry.get_tier()}'{_RESET}\n")
-                    return
-                print(f"  {_GRAY}⚡ Testing {tool}({json.dumps(parsed_args, ensure_ascii=False)}){_RESET}", flush=True)
+                      f"  {_GRAY}Example: /test write_file '{{\"path\": \"prueba.txt\", \"content\": \"hola\"}}'{_RESET}\n"
+                      f"  {_GRAY}Example: /test open_url --help{_RESET}\n"
+                      f"  {_GRAY}Flags: --help (show schema+defaults), --raw (compact output, no timing){_RESET}\n")
+                return
+            tool = args[0]
+            flags = [a for a in args[1:] if a.startswith("--")]
+            raw_args = " ".join(a for a in args[1:] if not a.startswith("--"))
+            if tool not in registry._tools:
+                print(f"  {_RED}Tool '{tool}' not found. Use /tools or /find to list.{_RESET}\n")
+                return
+            entry = registry._tools[tool]
+            if "--help" in flags:
+                print(self._format_tool_info(tool, entry))
+                return
+            try:
+                parsed_args = json.loads(raw_args) if raw_args.strip() else {}
+                if not isinstance(parsed_args, dict):
+                    raise ValueError("args must be a JSON object")
+            except Exception as e:
+                print(f"  {_RED}Invalid JSON args: {e}{_RESET}\n")
+                return
+            if not parsed_args:
+                parsed_args = self._sample_args(entry)
+                if parsed_args:
+                    print(f"  {_GRAY}Auto-args: {json.dumps(parsed_args, ensure_ascii=False)}{_RESET}")
+            if "--raw" in flags:
                 try:
                     output = await registry.execute(tool, parsed_args)
                     text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
-                    print(f"  {_GRAY}Result ({len(text)} chars):{_RESET}")
-                    print("  " + text[:4000] + ("…" if len(text) > 4000 else ""))
+                    print(text)
                     print()
                 except Exception as e:
                     print(f"  {_RED}Execution error: {e}{_RESET}\n")
+                return
+            print(f"  {_GRAY}⚡ Testing {tool}({json.dumps(parsed_args, ensure_ascii=False)}){_RESET}", flush=True)
+            t0 = time.monotonic()
+            try:
+                output = await registry.execute(tool, parsed_args)
+            except Exception as e:
+                print(f"  {_RED}Execution error: {e}{_RESET}\n")
+                return
+            dt_ms = (time.monotonic() - t0) * 1000
+            text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
+            self._last_call = (tool, parsed_args)
+            self._last_output = text
+            try:
+                ok = json.loads(text).get("success", True)
+            except Exception:
+                ok = True
+            icon = f"{_GREEN}✓{_RESET}" if ok else f"{_RED}✗{_RESET}"
+            print(f"  {_GRAY}{icon} {tool} in {dt_ms:.0f}ms ({len(text)} chars){_RESET}")
+            print("  " + text[:4000] + ("…" if len(text) > 4000 else ""))
+            print()
+            if len(text) > 4000:
+                print(f"  {_GRAY}Result truncated — use /last to see it again.{_RESET}\n")
+
+        elif cmd == "info":
+            if not args:
+                print(f"  {_YELLOW}Usage: /info <tool>{_RESET}\n")
+                return
+            tool = args[0]
+            entry = registry._tools.get(tool)
+            if not entry:
+                print(f"  {_RED}Tool '{tool}' not found. Use /tools or /find to list.{_RESET}\n")
+                return
+            print(self._format_tool_info(tool, entry))
+
+        elif cmd == "find":
+            if not args:
+                print(f"  {_YELLOW}Usage: /find <query>{_RESET}\n")
+                return
+            query = args[0].lower()
+            matches = [
+                entry for name, entry in registry._tools.items()
+                if query in name.lower() or query in (entry.get("description") or "").lower()
+            ]
+            if not matches:
+                print(f"  {_YELLOW}No tools match '{query}'.{_RESET}\n")
+            else:
+                print(f"  {_CYAN}Found {len(matches)} tool(s):{_RESET}")
+                for name, entry in sorted(registry._tools.items()):
+                    if query in name.lower() or query in (entry.get("description") or "").lower():
+                        hide = " " if registry._is_available(name) else f" {_RED}T{entry.get('tier','free')}{_RESET}"
+                        print(f"    {name:<28} {hide}")
+                        print(f"      {_GRAY}{(entry.get('description') or '')[:110]}{_RESET}")
+                print()
+
+        elif cmd == "last":
+            if not self._last_output:
+                print(f"  {_YELLOW}No tool has been executed yet in this session. Use /test.{_RESET}\n")
+            else:
+                tool, args_out = self._last_call or ("?", {})
+                print(f"  {_GRAY}Last result — {tool}({json.dumps(args_out, ensure_ascii=False)}):{_RESET}")
+                print("  " + self._last_output)
+                print()
+
+        elif cmd == "retry":
+            if not self._last_call:
+                print(f"  {_YELLOW}No previous tool call. Use /test first.{_RESET}\n")
+            else:
+                tool, prev_args = self._last_call
+                print(f"  {_GRAY}⚡ Re-running {tool}({json.dumps(prev_args, ensure_ascii=False)}){_RESET}", flush=True)
+                t0 = time.monotonic()
+                try:
+                    output = await registry.execute(tool, prev_args)
+                except Exception as e:
+                    print(f"  {_RED}Execution error: {e}{_RESET}\n")
+                    return
+                dt_ms = (time.monotonic() - t0) * 1000
+                text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
+                self._last_output = text
+                print(f"  {_GRAY}Result in {dt_ms:.0f}ms:{_RESET}")
+                print("  " + text[:4000] + ("…" if len(text) > 4000 else ""))
+                print()
+
+        elif cmd == "bench":
+            if not args:
+                print(f"  {_YELLOW}Usage: /bench <tool> [times (default 5)] [json args]{_RESET}\n")
+                return
+            tool = args[0]
+            n = 5
+            try:
+                n = int(args[1]) if len(args) > 1 and not args[1].startswith("{") else 5
+            except ValueError:
+                pass
+            n = max(1, min(n, 20))
+            raw_args = " ".join(a for a in args[1:] if not a.isdigit())
+            try:
+                parsed_args = json.loads(raw_args) if raw_args.strip() else {}
+                if not isinstance(parsed_args, dict):
+                    raise ValueError("args must be a JSON object")
+            except Exception as e:
+                print(f"  {_RED}Invalid JSON args: {e}{_RESET}\n")
+                return
+            if tool not in registry._tools:
+                print(f"  {_RED}Tool '{tool}' not found. Use /tools or /find to list.{_RESET}\n")
+                return
+            if not parsed_args:
+                parsed_args = self._sample_args(registry._tools[tool])
+            times_ms = []
+            ok_count = 0
+            print(f"  {_GRAY}Benchmarking {tool} ×{n}...{_RESET}", flush=True)
+            for i in range(n):
+                t0 = time.monotonic()
+                try:
+                    output = await registry.execute(tool, parsed_args)
+                    dt = (time.monotonic() - t0) * 1000
+                    times_ms.append(dt)
+                    text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
+                    try:
+                        ok = json.loads(text).get("success", True)
+                    except Exception:
+                        ok = True
+                    if ok:
+                        ok_count += 1
+                    print(f"    run {i + 1}: {dt:.0f}ms {'✓' if ok else '✗'}")
+                except Exception as e:
+                    print(f"    run {i + 1}: error {e}")
+            if times_ms:
+                print(f"  {_GRAY}min {min(times_ms):.0f}ms  avg {sum(times_ms)/len(times_ms):.0f}ms  max {max(times_ms):.0f}ms  ok {ok_count}/{n}{_RESET}")
+            print()
+
+        elif cmd == "activate":
+            if not args:
+                print(f"  {_YELLOW}Usage: /activate <serial-key>{_RESET}\n"
+                      f"  {_GRAY}Example: /activate XENS-PRO-3650-00000000-04b596c1c950{_RESET}\n"
+                      f"  {_GRAY}With a license server set, the key is validated online (Codex-style).{_RESET}\n")
+                return
+            raw_key = " ".join(args)
+            st = lic.get_state()
+            if st["status"] == "licensed":
+                print(f"  {_YELLOW}Already activated ({st['tier']}). Use /deactivate first to change key.{_RESET}\n")
+                return
+            server_url = lic.get_server_url()
+            if server_url:
+                print(f"  {_GRAY}Contacting license server {server_url}...{_RESET}", flush=True)
+                result = lic.activate_online(raw_key, server_url)
+                if result["success"]:
+                    registry.set_tier(result["tier"])
+                    print(f"  {_GREEN}✓ Activated (online)! Tier: {result['tier'].upper()}.{_RESET}\n")
+                    return
+                if result.get("status") not in ("no_server", "unreachable"):
+                    print(f"  {_RED}{result.get('error', 'Invalid key')}{_RESET}\n")
+                    return
+                print(f"  {_YELLOW}Server unavailable — falling back to offline key validation.{_RESET}")
+            result = lic.activate(raw_key)
+            if result["success"]:
+                registry.set_tier(result["tier"])
+                print(f"  {_GREEN}✓ Activated! Tier: {result['tier'].upper()} "
+                      f"for {result['days'] or 'lifetime'} days.{_RESET}\n")
+            else:
+                print(f"  {_RED}{result.get('error', 'Invalid key')}{_RESET}\n")
+
+        elif cmd in ("server", "set-server"):
+            if not args:
+                cur = lic.get_server_url()
+                print(f"  {_CYAN}License server:{_RESET} {cur or '(not set — offline/modo local)'}")
+                print(f"  {_GRAY}Set it with /server <url>   |   clear with /server off{_RESET}")
+                print(f"  {_GRAY}Env override: XENS_SERVER_URL (takes priority){_RESET}\n")
+            elif args[0].lower() in ("off", "none", "clear", "remove"):
+                config["server"] = {"url": ""}
+                save_config(config)
+                print(f"  {_YELLOW}License server cleared (offline mode).{_RESET}\n")
+            else:
+                url = args[0].strip()
+                if not url.startswith("http://") and not url.startswith("https://"):
+                    url = "http://" + url
+                config["server"] = {"url": url.rstrip("/")}
+                save_config(config)
+                print(f"  {_GREEN}License server set: {url.rstrip('/')}{_RESET}")
+                print(f"  {_GRAY}Next /activate <serial> will validate online.{_RESET}\n")
+
+        elif cmd == "deactivate":
+            lic.deactivate()
+            print(f"  {_YELLOW}License removed. Trial mode restarted.{_RESET}\n")
+
+        elif cmd == "license":
+            st = lic.get_state()
+            print(f"  {_CYAN}License:{_RESET} {lic.format_status_line()}")
+            print(f"    mode:      {st['mode']} ({'online' if st['online'] else 'offline'})")
+            print(f"    hwid:      {st['hwid']}")
+            if st["server_url"]:
+                print(f"    server:    {st['server_url']}")
+            if st["status"] == "licensed":
+                print(f"    tier:      {st['tier']}")
+                if st["online"]:
+                    print(f"    token:     {'stored (validated by server on use)' if st.get('activated') else '(none)'}")
+                else:
+                    print(f"    key:       {st.get('key')}")
+                if st.get("days_left") is not None:
+                    print(f"    expires:   {st['days_left']} days left")
+                else:
+                    print(f"    expires:   lifetime")
+                if st.get("name"):
+                    print(f"    issued to: {st['name']}")
+            else:
+                print(f"    trial:     {st['trial_used']}/{st['trial_limit']}")
+            print()
+
+        elif cmd == "status":
+            tier = registry.get_tier()
+            used, limit = ratelimiter.get_usage(tier)
+            uptime = time.monotonic() - self._started
+            print(f"  {_CYAN}Xens status:{_RESET}")
+            print(f"    version:   {get_current_version()}")
+            print(f"    license:   {lic.format_status_line()}")
+            print(f"    session:   {self._session.messages.__class__.__name__} ({len(self._session.messages)} messages)")
+            print(f"    uptime:    {int(uptime // 60)}m {int(uptime % 60)}s")
+            print(f"    tier:      {tier} — {used}/{limit} requests today")
+            print(f"    tools:     {registry.count}/{registry.count_total} available ({registry.count_hidden} hidden)")
+            print(f"    providers: {self._provider_status()}")
+            print()
+
+        elif cmd == "deps":
+            import importlib
+            print(f"  {_CYAN}Dependencies:{_RESET}")
+            checks = ["httpx", "mistralai", "openai", "pyautogui", "PIL", "edge_tts", "requests", "websockets", "aiohttp", "yaml"]
+            for mod in checks:
+                try:
+                    importlib.import_module(mod)
+                    print(f"    {mod:<14} {_GREEN}OK{_RESET}")
+                except ImportError:
+                    print(f"    {mod:<14} {_RED}MISSING{_RESET}")
+            print()
+
+        elif cmd == "history":
+            try:
+                n = int(args[0]) if args else 10
+            except ValueError:
+                n = 10
+            n = max(1, min(n, 100))
+            msgs = self._session.messages
+            print(f"  {_CYAN}Recent messages ({min(n, len(msgs))} of {len(msgs)}):{_RESET}")
+            for m in msgs[-n:]:
+                role = "You  " if m["role"] == "user" else "Xens "
+                content = (m.get("content") or "").replace("\n", " ")[:120]
+                print(f"    {role} {content}")
+            print()
 
         elif cmd in ("help", "?"):
             print(f"""
   {_BOLD}Commands:{_RESET}
   {_GRAY}/clear{_RESET}           Reset conversation
+  {_GRAY}/history [n]{_RESET}     Show last n conversation messages
   {_GRAY}/profile{_RESET}         Show what Xens remembers about you
   {_GRAY}/tools [query]{_RESET}   List available tools (filter optional)
-  {_GRAY}/test <tool> [json]{_RESET} Execute a tool directly (no LLM)
+  {_GRAY}/find <query>{_RESET}    Search tools by name or description
+  {_GRAY}/info <tool>{_RESET}     Full tool card: schema, defaults, tier, timeout
+  {_GRAY}/test <tool> [json]{_RESET} Execute a tool with auto-args, timing and ✓/✗
+  {_GRAY}/bench <tool> [times]{_RESET} Performance benchmark (min/avg/max)
+  {_GRAY}/last{_RESET}            Re-print last tool result (untrauncated)
+  {_GRAY}/retry{_RESET}           Re-run the last tool call
   {_GRAY}/tier [name]{_RESET}     Show or switch tier (free/pro/premium)
   {_GRAY}/limits{_RESET}          Show daily usage for all tiers
   {_GRAY}/providers{_RESET}       Show configured providers and models
+  {_GRAY}/status{_RESET}          Show version, uptime, tier, tools, providers
+  {_GRAY}/license{_RESET}         Show license state (mode, tier, hwid, expiry, trial)
+  {_GRAY}/activate <key>{_RESET}  Activate online (if server set) or offline serial
+  {_GRAY}/deactivate{_RESET}      Remove the license (back to trial)
+  {_GRAY}/server [url]{_RESET}    Show/set the license server URL (online mode)
+  {_GRAY}/deps{_RESET}            Check dependency modules
   {_GRAY}/config{_RESET}          Show config file locations
   {_GRAY}/help, /?{_RESET}        This help
   {_GRAY}exit, quit{_RESET}       Close
 
   {_BOLD}Examples:{_RESET}
-    /test system_info
-    /test write_file {{"path": "prueba.txt", "content": "hola"}}
-    /tools spotify
-    /tier pro
+    /test open_url --help
+    /test system_info --raw
+    /test list_dir {{"path": "C:/"}} 
+    /bench browser_list_tabs 3
+    /find spotify
+    /info write_file
 """)
         else:
             print(f"  {_YELLOW}Unknown command: /{cmd}. Type /help.{_RESET}\n")

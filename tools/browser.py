@@ -96,121 +96,112 @@ def _ensure_chrome():
         return False
 
 
-def _run(coro):
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
-
-
 @register(name="browser_navigate", description="Navigate Chrome to a URL via CDP.", tier="free")
-def browser_navigate(url: str) -> str:
+async def browser_navigate(url: str) -> str:
     if not HAS_WS:
         return json.dumps({"error": "websockets not installed (pip install websockets)", "success": False})
-    conn = _run(_connect())
+    conn = await _connect()
     if not conn:
         if not _ensure_chrome():
             return json.dumps({"error": "Failed to connect to Chrome. Make sure Chrome is open with --remote-debugging-port=9222", "success": False})
-        conn = _run(_connect())
+        conn = await _connect()
         if not conn:
             return json.dumps({"error": "Failed to connect to Chrome", "success": False})
     ws, sid = conn
     try:
-        _run(_send(ws, sid, "Page.navigate", {"url": url}))
+        await _send(ws, sid, "Page.navigate", {"url": url})
         return json.dumps({"success": True, "action": "navigate", "url": url})
     finally:
-        _run(ws.close())
+        await ws.close()
 
 
 @register(name="browser_get_title", description="Get the title of the active Chrome tab.", tier="free")
-def browser_get_title() -> str:
+async def browser_get_title() -> str:
     if not HAS_WS:
         return json.dumps({"error": "websockets not installed", "success": False})
-    conn = _run(_connect())
+    conn = await _connect()
     if not conn:
         return json.dumps({"error": "Chrome not connected", "success": False})
     ws, sid = conn
     try:
-        result = _run(_send(ws, sid, "Runtime.evaluate", {"expression": "document.title"}))
+        result = await _send(ws, sid, "Runtime.evaluate", {"expression": "document.title"})
         title = result.get("result", {}).get("value", "")
         return json.dumps({"success": True, "title": title})
     finally:
-        _run(ws.close())
+        await ws.close()
 
 
 @register(name="browser_get_url", description="Get the URL of the active Chrome tab.", tier="free")
-def browser_get_url() -> str:
+async def browser_get_url() -> str:
     if not HAS_WS:
         return json.dumps({"error": "websockets not installed", "success": False})
-    conn = _run(_connect())
+    conn = await _connect()
     if not conn:
         return json.dumps({"error": "Chrome not connected", "success": False})
     ws, sid = conn
     try:
-        result = _run(_send(ws, sid, "Runtime.evaluate", {"expression": "window.location.href"}))
+        result = await _send(ws, sid, "Runtime.evaluate", {"expression": "window.location.href"})
         url = result.get("result", {}).get("value", "")
         return json.dumps({"success": True, "url": url})
     finally:
-        _run(ws.close())
+        await ws.close()
 
 
 @register(name="browser_get_text", description="Extract text from the page using a CSS selector.", tier="free")
-def browser_get_text(selector: str = "body") -> str:
+async def browser_get_text(selector: str = "body") -> str:
     if not HAS_WS:
         return json.dumps({"error": "websockets not installed", "success": False})
-    conn = _run(_connect())
+    conn = await _connect()
     if not conn:
         return json.dumps({"error": "Chrome not connected", "success": False})
     ws, sid = conn
     try:
-        result = _run(_send(ws, sid, "Runtime.evaluate", {
+        result = await _send(ws, sid, "Runtime.evaluate", {
             "expression": f"""(() => {{
                 const el = document.querySelector('{selector}');
                 return el ? el.innerText.substring(0, 5000) : '';
             }})()""",
-        }))
+        })
         text = result.get("result", {}).get("value", "")
         return json.dumps({"success": True, "text": text})
     finally:
-        _run(ws.close())
+        await ws.close()
 
 
 @register(name="browser_click", description="Click an element on the page by CSS selector.", tier="free")
-def browser_click(selector: str) -> str:
+async def browser_click(selector: str) -> str:
     if not HAS_WS:
         return json.dumps({"error": "websockets not installed", "success": False})
-    conn = _run(_connect())
+    conn = await _connect()
     if not conn:
         return json.dumps({"error": "Chrome not connected", "success": False})
     ws, sid = conn
     try:
-        result = _run(_send(ws, sid, "Runtime.evaluate", {
+        result = await _send(ws, sid, "Runtime.evaluate", {
             "expression": f"""(() => {{
                 const el = document.querySelector('{selector}');
                 if (!el) return 'Element not found: {selector}';
                 el.click();
                 return 'OK';
             }})()""",
-        }))
+        })
         status = result.get("result", {}).get("value", "OK")
         return json.dumps({"success": status == "OK", "result": status, "selector": selector})
     finally:
-        _run(ws.close())
+        await ws.close()
 
 
 @register(name="browser_type", description="Type text into an input field by CSS selector.", tier="free")
-def browser_type(selector: str, text: str) -> str:
+async def browser_type(selector: str, text: str) -> str:
     if not HAS_WS:
         return json.dumps({"error": "websockets not installed", "success": False})
-    conn = _run(_connect())
+    conn = await _connect()
     if not conn:
         return json.dumps({"error": "Chrome not connected", "success": False})
     ws, sid = conn
     try:
         safe_text = text.replace("'", "\\'").replace("\n", "\\n")
-        result = _run(_send(ws, sid, "Runtime.evaluate", {
+        result = await _send(ws, sid, "Runtime.evaluate", {
             "expression": f"""(() => {{
                 const el = document.querySelector('{selector}');
                 if (!el) return 'Element not found: {selector}';
@@ -219,23 +210,23 @@ def browser_type(selector: str, text: str) -> str:
                 el.dispatchEvent(new Event('change', {{ bubbles: true }}));
                 return 'OK';
             }})()""",
-        }))
+        })
         status = result.get("result", {}).get("value", "OK")
         return json.dumps({"success": status == "OK", "result": status, "selector": selector})
     finally:
-        _run(ws.close())
+        await ws.close()
 
 
 @register(name="browser_screenshot", description="Capture screenshot of the active Chrome tab.", tier="free")
-def browser_screenshot() -> str:
+async def browser_screenshot() -> str:
     if not HAS_WS:
         return json.dumps({"error": "websockets not installed", "success": False})
-    conn = _run(_connect())
+    conn = await _connect()
     if not conn:
         return json.dumps({"error": "Chrome not connected", "success": False})
     ws, sid = conn
     try:
-        result = _run(_send(ws, sid, "Page.captureScreenshot", {"format": "png"}))
+        result = await _send(ws, sid, "Page.captureScreenshot", {"format": "png"})
         data = result.get("data", "")
         if not data:
             return json.dumps({"error": "Failed to capture screenshot", "success": False})
@@ -244,37 +235,37 @@ def browser_screenshot() -> str:
             f.write(base64.b64decode(data))
         return json.dumps({"success": True, "path": path})
     finally:
-        _run(ws.close())
+        await ws.close()
 
 
 @register(name="browser_list_tabs", description="List open Chrome tabs.", tier="free")
-def browser_list_tabs() -> str:
+async def browser_list_tabs() -> str:
     if not HAS_WS:
         return json.dumps({"error": "websockets not installed", "success": False})
-    conn = _run(_connect())
+    conn = await _connect()
     if not conn:
         return json.dumps({"error": "Chrome not connected", "success": False})
     ws, sid = conn
     try:
-        resp = _run(_send(ws, sid, "Target.getTargets"))
+        resp = await _send(ws, sid, "Target.getTargets")
         pages = [t for t in resp.get("targetInfos", []) if t["type"] == "page"]
         tabs = [{"id": p["targetId"][:8], "title": p.get("title", "")[:60], "url": p.get("url", "")[:100]} for p in pages]
         return json.dumps({"success": True, "count": len(tabs), "tabs": tabs})
     finally:
-        _run(ws.close())
+        await ws.close()
 
 
 @register(name="browser_search", description="Search for text in the current page.", tier="free")
-def browser_search(text: str) -> str:
+async def browser_search(text: str) -> str:
     if not HAS_WS:
         return json.dumps({"error": "websockets not installed", "success": False})
-    conn = _run(_connect())
+    conn = await _connect()
     if not conn:
         return json.dumps({"error": "Chrome not connected", "success": False})
     ws, sid = conn
     try:
         safe = text.lower().replace("'", "\\'")
-        result = _run(_send(ws, sid, "Runtime.evaluate", {
+        result = await _send(ws, sid, "Runtime.evaluate", {
             "expression": f"""(() => {{
                 const body = document.body.innerText || '';
                 const idx = body.toLowerCase().indexOf('{safe}');
@@ -283,8 +274,8 @@ def browser_search(text: str) -> str:
                 const end = Math.min(body.length, idx + 200);
                 return body.substring(start, end);
             }})()""",
-        }))
+        })
         snippet = result.get("result", {}).get("value", "")
         return json.dumps({"success": True, "found": bool(snippet), "context": snippet})
     finally:
-        _run(ws.close())
+        await ws.close()

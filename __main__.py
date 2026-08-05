@@ -13,6 +13,7 @@ from .memory.session import Session
 from .web.server import WebServer
 from .tools.registry import registry, discover_tools
 from .core.updater import get_current_version, update_via_git
+from .core import license as lic
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("xens")
@@ -55,6 +56,7 @@ def _check() -> int:
         print(f"  api keys: missing for {', '.join(missing)} (chat disabled, /test works)")
     else:
         print("  api keys: all configured")
+    print(f"  license:  {lic.format_status_line()}")
     import importlib
     for mod in ("httpx", "mistralai", "openai", "pyautogui", "PIL", "edge_tts"):
         try:
@@ -77,6 +79,14 @@ def main():
     if args.tier:
         registry.set_tier(args.tier)
         logger.info("Tier overridden to '%s'", args.tier)
+    else:
+        lic_state = lic.get_state()
+        if lic_state["status"] in ("licensed", "unlocked"):
+            registry.set_tier(lic.effective_tier())
+            logger.info("License '%s' active — tier set to '%s'", lic_state["status"], registry.get_tier())
+        if lic_state["status"] == "locked":
+            print(f"\n  \033[31mXens is locked:\033[0m trial used up ({lic_state['trial_used']}/{lic_state['trial_limit']}).")
+            print(f"  Type \033[33m/activate <serial-key>\033[0m to unlock (or contact the seller).\n")
 
     if args.check:
         sys.exit(_check())

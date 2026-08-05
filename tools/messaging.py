@@ -8,7 +8,7 @@ _TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
 async def _send_via_cdp(expression: str) -> str:
     try:
-        from tools.browser import _connect, _send
+        from .browser import _connect, _send
         conn = await _connect()
         if not conn:
             return "Error: Chrome no conectado"
@@ -20,15 +20,6 @@ async def _send_via_cdp(expression: str) -> str:
             await ws.close()
     except ImportError:
         return "Error: browser.py no disponible"
-
-
-def _run(coro):
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 @register(
@@ -44,7 +35,7 @@ def _run(coro):
     },
     tier="premium",
 )
-def whatsapp_send(contact: str, message: str) -> str:
+async def whatsapp_send(contact: str, message: str) -> str:
     msg_escaped = message.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
     contact_escaped = contact.replace("'", "\\'")
     js = f"""
@@ -71,7 +62,7 @@ def whatsapp_send(contact: str, message: str) -> str:
         return 'Enviado';
     }})()
     """
-    return _run(_send_via_cdp(js))
+    return await _send_via_cdp(js)
 
 
 @register(
