@@ -41,9 +41,9 @@
     // La prueba gratuita (trial) usa además un contador total único (300),
     // informado por el estado de licencia, no por este mapa.
     PLAN_LIMITS: {
-      free: 200,
-      pro: 500,
-      premium: 2000,
+      free: 300,
+      pro: 3000,
+      premium: 10000,
     },
     PLAN_META: {
       free: { label: "Plan Gratuito", badge: "FREE" },

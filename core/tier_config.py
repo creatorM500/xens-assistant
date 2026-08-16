@@ -12,14 +12,14 @@ DEFAULT_CONFIG = {
         "models": [
             {"provider": "mistral", "model": "mistral-small-2506"}
         ],
-        "daily_limit": 200,
+        "daily_limit": 300,
     },
     "pro": {
         "models": [
             {"provider": "mistral", "model": "mistral-small-2506"},
             {"provider": "openai", "model": "gpt-4o"},
         ],
-        "daily_limit": 500,
+        "daily_limit": 3000,
     },
     "premium": {
         "models": [
@@ -27,7 +27,7 @@ DEFAULT_CONFIG = {
             {"provider": "openrouter", "model": "google/gemini-2.0-flash-001"},
             {"provider": "openrouter", "model": "deepseek/deepseek-r1"},
         ],
-        "daily_limit": 2000,
+        "daily_limit": 10000,
     },
 }
 
