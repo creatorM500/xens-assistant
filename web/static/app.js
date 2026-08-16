@@ -175,6 +175,7 @@
     // usuario autenticado (Firebase), su plan, y conversación activa (Supabase)
     user: null,
     plan: "free",
+    account: null,
     currentConversationId: null,
 
     // archivos seleccionados pendientes de enviar con el próximo mensaje
@@ -1281,6 +1282,7 @@
       state.isConnected = true;
       state.reconnectAttempts = 0;
       setConnectionUI("connected");
+      sendAuthToken();
     });
 
     state.socket.addEventListener("message", (event) => {
@@ -1324,6 +1326,20 @@
     attemptReconnect();
   }
 
+  async function sendAuthToken() {
+    let token = null;
+    try {
+      if (window.XensAuth && typeof window.XensAuth.getToken === "function") {
+        token = await window.XensAuth.getToken();
+      }
+    } catch (err) {
+      token = null;
+    }
+    if (token && state.socket && state.socket.readyState === WebSocket.OPEN) {
+      state.socket.send(JSON.stringify({ type: "auth", token }));
+    }
+  }
+
   function handleServerMessage(data) {
     switch (data.type) {
       case "content":
@@ -1345,6 +1361,23 @@
       case "error":
         finishAssistantBubble();
         addSystemNote(data.message || data.content || "Ocurrió un error procesando tu mensaje.");
+        break;
+
+      case "auth_ok":
+        if (data.account) {
+          state.account = data.account;
+          state.plan = data.account.tier || "free";
+          updateUsageUI();
+          if (data.account.name && el.welcomeGreeting) {
+            const firstName = String(data.account.name).split(" ")[0];
+            el.welcomeGreeting.textContent = `Hola, ${firstName}`;
+          }
+        }
+        loadProfile();
+        break;
+
+      case "auth_error":
+        addSystemNote("No se pudo autenticar tu cuenta con el motor local.");
         break;
 
       case "ping":
@@ -1555,8 +1588,12 @@
 
   el.upgradeBtn.addEventListener("click", () => {
     if (window.XensAnalytics) window.XensAnalytics.track("upgrade_click", { from: "sidebar" });
-    // En el cliente local, "mejorar plan" = activar un serial:
-    // el plan se asigna según la licencia que se active.
+    if (state.account) {
+      // Cuenta: el upgrade es una suscripción (pricing → PayPal).
+      window.location.href = "pricing.html";
+      return;
+    }
+    // Cliente local sin cuenta: "mejorar plan" = activar un serial.
     openSettings();
     if (el.licenseKey) el.licenseKey.focus();
   });
@@ -1565,8 +1602,17 @@
      9. PERFIL DE USUARIO (REST, opcional al cargar)
   ---------------------------------------------------------- */
   async function loadProfile() {
+    const headers = {};
     try {
-      const res = await fetch(CONFIG.PROFILE_URL);
+      if (window.XensAuth && typeof window.XensAuth.getToken === "function") {
+        const token = await window.XensAuth.getToken();
+        if (token) headers.Authorization = "Bearer " + token;
+      }
+    } catch (err) {
+      /* sin token: modo local */
+    }
+    try {
+      const res = await fetch(CONFIG.PROFILE_URL, { headers, cache: "no-store" });
       if (!res.ok) return;
       const profile = await res.json();
 

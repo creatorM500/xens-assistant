@@ -1,3 +1,5 @@
 aiohttp
 httpx
 comtypes
+pyjwt
+cryptography

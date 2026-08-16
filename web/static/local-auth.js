@@ -61,6 +61,10 @@
     async refresh() {
       return refresh();
     },
+    /* Modo local: no hay cuenta Firebase, nunca hay token. */
+    async getToken() {
+      return null;
+    },
     logout() {
       window.location.reload();
     },

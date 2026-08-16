@@ -47,23 +47,26 @@ class RateLimiter:
             self._counts = {}
             self._save()
 
-    def check(self, tier: str = "free") -> tuple[bool, int, int, Optional[int]]:
+    def check(self, tier: str = "free", uid: Optional[str] = None) -> tuple[bool, int, int, Optional[int]]:
         self._ensure_day()
         limit = tier_config.get_daily_limit(tier)
-        used = self._counts.get(tier, 0)
+        key = f"{uid}:{tier}" if uid else tier
+        used = self._counts.get(key, 0)
         remaining = max(0, limit - used)
         reset_seconds = self._seconds_until_reset()
         allowed = used < limit
         return allowed, remaining, limit, reset_seconds
 
-    def record(self, tier: str = "free"):
+    def record(self, tier: str = "free", uid: Optional[str] = None):
         self._ensure_day()
-        self._counts[tier] = self._counts.get(tier, 0) + 1
+        key = f"{uid}:{tier}" if uid else tier
+        self._counts[key] = self._counts.get(key, 0) + 1
         self._save()
 
-    def get_usage(self, tier: str = "free") -> tuple[int, int]:
+    def get_usage(self, tier: str = "free", uid: Optional[str] = None) -> tuple[int, int]:
         self._ensure_day()
-        used = self._counts.get(tier, 0)
+        key = f"{uid}:{tier}" if uid else tier
+        used = self._counts.get(key, 0)
         limit = tier_config.get_daily_limit(tier)
         return used, limit
 

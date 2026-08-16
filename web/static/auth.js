@@ -57,6 +57,16 @@
         async refresh() {
           return makeUser(auth.currentUser);
         },
+        async getToken() {
+          const u = auth.currentUser;
+          if (!u) return null;
+          try {
+            return await u.getIdToken(true);
+          } catch (err) {
+            console.warn("No se pudo obtener el token:", err);
+            return null;
+          }
+        },
         async loginWithEmail(email, password) {
           try {
             await auth.signInWithEmailAndPassword(email, password);

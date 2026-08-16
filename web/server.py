@@ -8,6 +8,8 @@ from ..core.config import PORT
 from ..core.llm import run_tool_loop, reset_provider
 from ..core import dependencies as deps
 from ..core import license as lic
+from ..core.firebase_auth import firebase_auth
+from ..core.ratelimit import ratelimiter
 from ..core.tier_config import tier_config
 from ..memory.session import Session
 from ..memory.profile import profile
@@ -35,7 +37,10 @@ class WebServer:
     async def _handle_ws(self, request):
         ws = web.WebSocketResponse(max_msg_size=5 * 1024 * 1024)
         await ws.prepare(request)
-        # SesiÃ³n por conexiÃ³n: dos pestaÃ±as abiertas no se pisan el historial
+        # Modo local: sesión por conexión (dos pestañas no se pisan).
+        # Con cuenta autenticada: sesión por UID (aislada entre cuentas,
+        # compartida entre pestañas de la misma cuenta).
+        account = None
         session = Session("web")
         messages = self._build_messages(session)
 
@@ -52,6 +57,32 @@ class WebServer:
                         continue
 
                     try:
+                        if data.get("type") == "auth":
+                            token = data.get("token")
+                            claims = await firebase_auth.verify(token) if token else None
+                            if claims:
+                                account = claims
+                                uid = str(claims.get("uid") or "")
+                                session = Session(f"acct:{uid}")
+                                messages = self._build_messages(session)
+                                tier = account.get("tier") or "free"
+                                try:
+                                    registry.set_tier(tier)
+                                except ValueError:
+                                    registry.set_tier("free")
+                                await ws.send_json({
+                                    "type": "auth_ok",
+                                    "account": {
+                                        "uid": uid,
+                                        "email": claims.get("email") or "",
+                                        "name": claims.get("name") or "",
+                                        "tier": tier,
+                                    },
+                                })
+                            else:
+                                await ws.send_json({"type": "auth_error"})
+                            continue
+
                         if data.get("type") == "message":
                             text = data.get("text")
                             if not isinstance(text, str):
@@ -66,19 +97,35 @@ class WebServer:
                                 if data.get("replaceUser"):
                                     session.pop_last("user")
                                 messages = self._build_messages(session)
-                            gate = await asyncio.to_thread(lic.gate_status)
-                            if not gate["allowed"]:
-                                await ws.send_json({"type": "license", "state": gate["state"]})
-                                await ws.send_json({"type": "done"})
-                                continue
-                            if gate["reason"] == "trial":
-                                await asyncio.to_thread(lic.record_trial_use)
-                            await asyncio.to_thread(profile.record_interaction)
+                            if account:
+                                uid = str(account.get("uid") or "")
+                                tier = account.get("tier") or "free"
+                                allowed, remaining, limit, reset = ratelimiter.check(tier=tier, uid=uid)
+                                if not allowed:
+                                    await ws.send_json({
+                                        "type": "error",
+                                        "content": (
+                                            f"Alcanzaste el límite diario de tu plan "
+                                            f"({limit} chats). Vuelve mañana o mejora tu plan."
+                                        ),
+                                    })
+                                    await ws.send_json({"type": "done"})
+                                    continue
+                                ratelimiter.record(tier=tier, uid=uid)
+                            else:
+                                gate = await asyncio.to_thread(lic.gate_status)
+                                if not gate["allowed"]:
+                                    await ws.send_json({"type": "license", "state": gate["state"]})
+                                    await ws.send_json({"type": "done"})
+                                    continue
+                                if gate["reason"] == "trial":
+                                    await asyncio.to_thread(lic.record_trial_use)
+                                await asyncio.to_thread(profile.record_interaction)
                             session.add("user", text)
                             messages.append({"role": "user", "content": text})
 
                             full = ""
-                            tier = registry.get_tier()
+                            tier = account.get("tier") if account else registry.get_tier()
                             try:
                                 async for chunk in run_tool_loop(messages, tier=tier):
                                     if isinstance(chunk, dict):
@@ -105,7 +152,7 @@ class WebServer:
 
                         elif data.get("type") == "clear":
                             session.clear()
-                            messages = self._build_messages()
+                            messages = self._build_messages(session)
                             await ws.send_json({"type": "cleared"})
 
                         elif data.get("type") == "get_profile":
@@ -185,6 +232,25 @@ class WebServer:
         )
 
     async def _handle_api_profile(self, request):
+        account = await firebase_auth.account_from_authorization(
+            request.headers.get("Authorization")
+        )
+        if account:
+            uid = str(account.get("uid") or "")
+            tier = account.get("tier") or "free"
+            used, message_limit = ratelimiter.get_usage(tier=tier, uid=uid)
+            lic_state = lic.get_state()
+            return web.json_response({
+                "account": True,
+                "uid": uid,
+                "name": account.get("name") or "",
+                "email": account.get("email") or "",
+                "interactions": used,
+                "messageCount": used,
+                "messageLimit": message_limit,
+                "plan": tier,
+                "license": lic_state,
+            })
         profile.load()
         lic_state = lic.get_state()
         tier = lic_state.get("tier") or "free"
@@ -200,6 +266,7 @@ class WebServer:
             else profile.interaction_count
         )
         return web.json_response({
+            "account": False,
             "name": profile.name or "",
             "email": lic_state.get("name") or "",
             "interactions": profile.interaction_count,

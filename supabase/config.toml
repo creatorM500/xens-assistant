@@ -2,3 +2,6 @@ project_id = "xens-assistant"
 
 [functions.license]
 verify_jwt = false
+
+[functions.paypal-webhook]
+verify_jwt = false
