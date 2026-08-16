@@ -141,7 +141,11 @@ class ToolRegistry:
                 if is_async:
                     result = await asyncio.wait_for(handler(**validated), timeout=timeout)
                 else:
-                    result = handler(**validated)
+                    # Handler síncrono: ejecutarlo fuera del event loop con
+                    # timeout real, para no congelar toda la app.
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(handler, **validated), timeout=timeout
+                    )
                 logger.debug(f"Tool '{name}' OK ({len(str(result))} chars)")
                 return result
             except asyncio.TimeoutError:
@@ -159,7 +163,7 @@ class ToolRegistry:
 
     def _validate_args(self, schema, args):
         if not isinstance(args, dict):
-            return {}
+            raise ToolError("Tool arguments must be a JSON object", code="INVALID_TYPE")
         props = schema.get("properties", {})
         required = schema.get("required", [])
         validated = {}
@@ -167,23 +171,42 @@ class ToolRegistry:
             if key not in args:
                 raise ToolError(f"Missing required parameter: '{key}'", code="MISSING_PARAM")
         for key, value in args.items():
-            if key in props:
-                prop = props[key]
-                if prop.get("type") == "string" and not isinstance(value, str):
-                    value = str(value)
-                elif prop.get("type") == "integer" and not isinstance(value, int):
-                    try:
-                        value = int(value)
-                    except:
-                        raise ToolError(f"Parameter '{key}' must be an integer", code="INVALID_TYPE")
-                elif prop.get("type") == "number" and not isinstance(value, (int, float)):
-                    try:
-                        value = float(value)
-                    except:
-                        raise ToolError(f"Parameter '{key}' must be a number", code="INVALID_TYPE")
-                if "enum" in prop and value not in prop["enum"]:
-                    raise ToolError(f"Parameter '{key}' must be one of: {', '.join(prop['enum'])}", code="INVALID_ENUM")
-                validated[key] = value
+            if key not in props:
+                continue
+            prop = props[key]
+            ptype = prop.get("type")
+            if ptype == "string" and not isinstance(value, str):
+                value = str(value)
+            elif ptype == "integer" and not isinstance(value, int):
+                try:
+                    value = int(value)
+                except:
+                    raise ToolError(f"Parameter '{key}' must be an integer", code="INVALID_TYPE")
+            elif ptype == "number" and not isinstance(value, (int, float)):
+                try:
+                    value = float(value)
+                except:
+                    raise ToolError(f"Parameter '{key}' must be a number", code="INVALID_TYPE")
+            elif ptype == "boolean":
+                if isinstance(value, bool):
+                    pass
+                elif isinstance(value, str):
+                    low = value.strip().lower()
+                    if low in ("true", "1", "yes", "si"):
+                        value = True
+                    elif low in ("false", "0", "no"):
+                        value = False
+                    else:
+                        raise ToolError(f"Parameter '{key}' must be true or false", code="INVALID_TYPE")
+                else:
+                    value = bool(value)
+            elif ptype == "array" and not isinstance(value, list):
+                raise ToolError(f"Parameter '{key}' must be an array", code="INVALID_TYPE")
+            elif ptype == "object" and not isinstance(value, dict):
+                raise ToolError(f"Parameter '{key}' must be an object", code="INVALID_TYPE")
+            if "enum" in prop and value not in prop["enum"]:
+                raise ToolError(f"Parameter '{key}' must be one of: {', '.join(prop['enum'])}", code="INVALID_ENUM")
+            validated[key] = value
         return validated
 
     @property

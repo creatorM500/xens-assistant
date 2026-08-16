@@ -54,17 +54,24 @@ def _save_config(cfg: dict):
     _CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
 def _refresh_token(tok: dict) -> dict:
-    r = requests.post("https://accounts.spotify.com/api/token",
-        data={"grant_type": "refresh_token", "refresh_token": tok["refresh_token"]},
-        auth=(_CLIENT_ID, _CLIENT_SECRET))
-    if r.status_code == 200:
-        new = r.json()
-        tok["access_token"] = new["access_token"]
-        tok["expires_at"] = time.time() + new.get("expires_in", 3600)
-        _save_token(tok)
+    if not HAS_REQUESTS:
+        return tok
+    try:
+        r = requests.post("https://accounts.spotify.com/api/token",
+            data={"grant_type": "refresh_token", "refresh_token": tok["refresh_token"]},
+            auth=(_CLIENT_ID, _CLIENT_SECRET), timeout=15)
+        if r.status_code == 200:
+            new = r.json()
+            tok["access_token"] = new["access_token"]
+            tok["expires_at"] = time.time() + new.get("expires_in", 3600)
+            _save_token(tok)
+    except Exception as e:
+        logger.warning(f"Token refresh failed: {e}")
     return tok
 
 def _get_valid_token() -> str:
+    if not HAS_REQUESTS:
+        return ""
     tok = _load_token()
     if not tok:
         return ""
@@ -147,9 +154,12 @@ def _get_user() -> str:
     token = _get_valid_token()
     if not token:
         return "?"
-    r = requests.get("https://api.spotify.com/v1/me", headers={"Authorization": f"Bearer {token}"})
-    if r.status_code == 200:
-        return r.json().get("display_name", "?")
+    try:
+        r = requests.get("https://api.spotify.com/v1/me", headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        if r.status_code == 200:
+            return r.json().get("display_name", "?")
+    except Exception:
+        pass
     return "?"
 
 

@@ -134,6 +134,12 @@ def list_categories() -> str:
     tier="free",
 )
 def get_tool_schemas(names: list[str] = None, categories: list[str] = None, query: str = None) -> str:
+    if isinstance(names, str):
+        names = [names]
+    if isinstance(categories, str):
+        categories = [categories]
+    if query is not None and not isinstance(query, str):
+        query = str(query)
     available = set(get_available_tool_names())
     to_discover: set[str] = set()
 

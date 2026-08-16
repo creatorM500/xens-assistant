@@ -1,4 +1,4 @@
-import asyncio, sys, logging, shutil, json, time, inspect
+import asyncio, sys, logging, shutil, json, time, inspect, queue, threading
 
 from ..core.llm import run_tool_loop
 from ..memory.session import Session
@@ -22,6 +22,37 @@ _RED = "\033[91m"
 _GRAY = "\033[90m"
 _BOLD = "\033[1m"
 _RESET = "\033[0m"
+
+
+class _ConsoleInput(threading.Thread):
+    """Lee stdin desde un thread daemon para que Ctrl+C/exit no cuelguen la salida.
+
+    run_in_executor + input() deja un thread bloqueado en input() al salir, y
+    asyncio.run() espera a que el executor muera -> la app se congela al cerrar.
+    """
+
+    def __init__(self):
+        super().__init__(daemon=True, name="xens-console-input")
+        self._q: "queue.Queue[str]" = queue.Queue()
+        self.start()
+
+    def run(self):
+        while True:
+            prompt = self._q.get()
+            try:
+                line = input(prompt)
+            except EOFError:
+                line = ""
+            self._q.task_done()
+            _console_lines.put((prompt, line))
+
+    async def readline(self, prompt: str):
+        self._q.put(prompt)
+        return await asyncio.to_thread(_console_lines.get)
+
+
+_console_lines: "queue.Queue[tuple[str, str]]" = queue.Queue()
+_console_input = _ConsoleInput()
 
 
 def _mask(key: str) -> str:
@@ -158,8 +189,8 @@ class ConsoleChat:
             if sug:
                 print(f"  {_YELLOW}💡 {sug['message']}{_RESET}")
             try:
-                raw = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: input(f"  {_YELLOW}You [{registry.get_tier()}]:{_RESET} ").strip()
+                raw = await _console_input.readline(
+                    f"  {_YELLOW}You [{registry.get_tier()}]:{_RESET} "
                 )
             except (EOFError, KeyboardInterrupt):
                 print(f"\n  {_CYAN}Xens:{_RESET} Later, {name}.\n")

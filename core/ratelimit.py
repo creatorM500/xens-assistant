@@ -1,4 +1,5 @@
 import json, time, logging
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -23,17 +24,18 @@ class RateLimiter:
     def _load(self):
         if USAGE_FILE.exists():
             try:
-                with open(USAGE_FILE) as f:
+                with open(USAGE_FILE, encoding="utf-8") as f:
                     data = json.load(f)
+                counts = data.get("counts")
                 self._day = data.get("day", "")
-                self._counts = data.get("counts", {})
+                self._counts = counts if isinstance(counts, dict) else {}
             except:
                 pass
 
     def _save(self):
         USAGE_DIR.mkdir(parents=True, exist_ok=True)
         try:
-            with open(USAGE_FILE, "w") as f:
+            with open(USAGE_FILE, "w", encoding="utf-8") as f:
                 json.dump({"day": self._day, "counts": self._counts}, f, indent=2)
         except:
             logger.exception("Failed to save usage")
@@ -72,9 +74,10 @@ class RateLimiter:
             USAGE_FILE.unlink()
 
     def _seconds_until_reset(self) -> int:
-        now = time.time()
-        tomorrow = int(now // 86400 + 1) * 86400
-        return int(tomorrow - now)
+        """Segundos hasta la medianoche LOCAL (misma frontera que _today)."""
+        now = datetime.now()
+        midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return int((midnight - now).total_seconds())
 
 
 ratelimiter = RateLimiter()

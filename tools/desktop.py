@@ -118,7 +118,7 @@ def launch_app(name: str, url: str = "", wait: int = 3) -> str:
                     if os.path.isfile(exe):
                         try:
                             args = [exe, "--processStart", "Discord.exe"] if "Update.exe" in exe else [exe]
-                            subprocess.Popen(args, shell=True)
+                            subprocess.Popen(args, shell=False)
                             time.sleep(wait)
                             return json.dumps({"success": True, "app": name, "method": "path", "path": exe})
                         except:
@@ -127,7 +127,7 @@ def launch_app(name: str, url: str = "", wait: int = 3) -> str:
                 if os.path.isfile(pattern):
                     try:
                         args = [pattern, "--processStart", "Discord.exe"] if "Update.exe" in pattern else [pattern]
-                        subprocess.Popen(args, shell=True)
+                        subprocess.Popen(args, shell=False)
                         time.sleep(wait)
                         return json.dumps({"success": True, "app": name, "method": "path", "path": pattern})
                     except:
@@ -139,19 +139,19 @@ def launch_app(name: str, url: str = "", wait: int = 3) -> str:
         except:
             pass
     try:
-        result = subprocess.run(f"where {name}", capture_output=True, text=True, timeout=5, shell=True)
-        if result.returncode == 0 and result.stdout.strip():
-            exe = result.stdout.strip().split("\n")[0].strip()
-            if os.path.isfile(exe):
-                subprocess.Popen([exe], shell=True)
-                time.sleep(min(wait, 2))
-                return json.dumps({"success": True, "app": name, "method": "where", "path": exe})
+        import shutil
+        exe = shutil.which(name)
+        if exe and os.path.isfile(exe):
+            subprocess.Popen([exe], shell=False)
+            time.sleep(min(wait, 2))
+            return json.dumps({"success": True, "app": name, "method": "which", "path": exe})
     except:
         pass
-    try:
-        subprocess.Popen(f"start {name}", shell=True)
-        time.sleep(min(wait, 2))
-        return json.dumps({"success": True, "app": name, "method": "start"})
-    except:
-        pass
+    if re.fullmatch(r"[A-Za-z0-9_.\- ]+", name):
+        try:
+            subprocess.Popen(["cmd", "/c", "start", "", name], shell=False)
+            time.sleep(min(wait, 2))
+            return json.dumps({"success": True, "app": name, "method": "start"})
+        except:
+            pass
     return json.dumps({"error": f"Could not find or launch '{name}'", "success": False})

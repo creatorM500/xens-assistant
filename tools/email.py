@@ -4,7 +4,7 @@ email.py — Email client via IMAP/SMTP.
 Passwords stored in Windows Credential Manager (OS-level encryption).
 Ported from Xens Omni email_client.py — cleaner paths and JSON returns.
 """
-import ctypes, ctypes.wintypes, email, imaplib, json, logging, os, smtplib
+import ctypes, ctypes.wintypes, email, imaplib, json, logging, os, smtplib, socket
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
@@ -127,12 +127,16 @@ def _connect_imap() -> Optional[imaplib.IMAP4_SSL]:
     if not info:
         return None
     imap_server, _, email_addr, password, imap_port, _ = info
+    old_timeout = socket.getdefaulttimeout()
     try:
+        socket.setdefaulttimeout(15)
         conn = imaplib.IMAP4_SSL(imap_server, imap_port)
         conn.login(email_addr, password)
         return conn
     except Exception:
         return None
+    finally:
+        socket.setdefaulttimeout(old_timeout)
 
 @register(name="read_inbox", description="Read recent emails from inbox.", tier="free")
 def read_inbox(limit: int = 10, folder: str = "INBOX") -> str:
@@ -161,11 +165,18 @@ def read_inbox(limit: int = 10, folder: str = "INBOX") -> str:
                 body = msg.get_payload(decode=True)
                 body = body.decode("utf-8", errors="replace")[:200] if body else ""
             messages.append({"from": sender, "subject": subject, "body": body})
-        conn.close()
-        conn.logout()
         return json.dumps({"success": True, "folder": folder, "count": len(messages), "messages": messages})
     except Exception as e:
         return json.dumps({"error": f"Failed to read inbox: {e}", "success": False})
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        try:
+            conn.logout()
+        except Exception:
+            pass
 
 @register(name="search_email", description="Search emails by subject or body content.", tier="free")
 def search_email(query: str, folder: str = "INBOX") -> str:
@@ -187,11 +198,18 @@ def search_email(query: str, folder: str = "INBOX") -> str:
             raw = msg_data[0][1] if msg_data else b""
             msg = email.message_from_bytes(raw)
             results.append({"from": msg.get("From", "?"), "subject": msg.get("Subject", "?")})
-        conn.close()
-        conn.logout()
         return json.dumps({"success": True, "query": query, "count": len(results), "results": results})
     except Exception as e:
         return json.dumps({"error": f"Search failed: {e}", "success": False})
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        try:
+            conn.logout()
+        except Exception:
+            pass
 
 @register(name="send_email", description="Send an email via the configured SMTP account.", tier="free")
 def send_email(to: str, subject: str, body: str) -> str:

@@ -17,6 +17,21 @@ except ImportError:
 
 _DATA_DIR = Path.home() / ".xens" / "macros"
 
+_SAFE_NAME_RE = "^[a-zA-Z0-9_\\- ]{1,64}$"
+
+def _valid_name(name: str) -> bool:
+    import re
+    return bool(name) and len(name) <= 64 and re.match(_SAFE_NAME_RE, name) is not None
+
+def _macro_path(name: str) -> Path:
+    """Path validado dentro de _DATA_DIR (sin path traversal)."""
+    if not _valid_name(name):
+        raise ValueError(f"Invalid macro name: {name!r} (use letters, numbers, _ - and spaces)")
+    path = _DATA_DIR / f"{name}.json"
+    if not path.is_relative_to(_DATA_DIR):
+        raise ValueError(f"Invalid macro name: {name!r}")
+    return path
+
 _recording = []
 _recording_active = False
 _listener_k = None
@@ -74,8 +89,11 @@ def macro_stop(name: str = "") -> str:
     events = copy.deepcopy(_recording)
     if not name:
         name = f"macro_{int(time.time())}"
+    try:
+        path = _macro_path(name)
+    except ValueError as e:
+        return json.dumps({"error": str(e), "success": False})
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
-    path = _DATA_DIR / f"{name}.json"
     path.write_text(json.dumps({"name": name, "created": time.time(), "events": events}, indent=2), encoding="utf-8")
     return json.dumps({"success": True, "macro": name, "events": len(events)})
 
@@ -92,7 +110,10 @@ def macro_list() -> str:
 def macro_play(name: str) -> str:
     if not HAS_PYNPUT:
         return json.dumps({"error": "pynput not installed", "success": False})
-    path = _DATA_DIR / f"{name}.json"
+    try:
+        path = _macro_path(name)
+    except ValueError as e:
+        return json.dumps({"error": str(e), "success": False})
     if not path.exists():
         return json.dumps({"error": f"Macro not found: {name}", "success": False})
     try:
@@ -157,7 +178,10 @@ def macro_play(name: str) -> str:
 
 @register(name="macro_delete", description="Delete a saved macro.", tier="free")
 def macro_delete(name: str) -> str:
-    path = _DATA_DIR / f"{name}.json"
+    try:
+        path = _macro_path(name)
+    except ValueError as e:
+        return json.dumps({"error": str(e), "success": False})
     if path.exists():
         path.unlink()
         return json.dumps({"success": True, "macro": name, "action": "deleted"})

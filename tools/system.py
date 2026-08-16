@@ -1,4 +1,4 @@
-import json, os, platform, sys, shutil, subprocess
+import csv, io, json, os, platform, sys, shutil, subprocess
 from pathlib import Path
 from .registry import register
 
@@ -64,3 +64,58 @@ def system_info(project_root: str = None, tree_depth: int = 3, show_hidden: bool
             _walk(root_p, "", 1)
             info["project_tree"] = "\n".join(tree_lines)
     return json.dumps({"success": True, "info": info})
+
+
+@register(
+    name="list_processes",
+    description="List running processes with PID and memory usage. Optional filter by name (e.g. 'roblox', 'chrome').",
+    tier="free",
+    parameters={
+        "type": "object",
+        "properties": {
+            "search": {"type": "string", "description": "Optional filter: processes whose name contains this text (case-insensitive)"},
+            "limit": {"type": "integer", "description": "Maximo de resultados (default 30, max 100)"},
+        },
+        "required": [],
+    },
+)
+def list_processes(search: str = "", limit: int = 30) -> str:
+    limit = max(1, min(int(limit or 30), 100))
+    rows = []
+    if os.name == "nt":
+        try:
+            proc = subprocess.run("tasklist /FO CSV /NH", capture_output=True,
+                                  text=True, timeout=20, shell=True)
+            for parts in csv.reader(io.StringIO(proc.stdout)):
+                if len(parts) >= 5:
+                    rows.append((parts[1], parts[0], parts[4]))
+        except Exception as e:
+            return json.dumps({"error": f"tasklist falló: {e}", "success": False})
+    else:
+        try:
+            proc = subprocess.run(["ps", "-eo", "pid,comm,rss", "--sort=-rss"],
+                                  capture_output=True, text=True, timeout=20)
+            for line in proc.stdout.splitlines()[1:]:
+                parts = line.split(None, 2)
+                if len(parts) == 3:
+                    rows.append((parts[0], parts[1], f"{int(parts[2]) // 1024} MB"))
+        except Exception as e:
+            return json.dumps({"error": f"ps falló: {e}", "success": False})
+
+    if search:
+        needle = str(search).lower()
+        rows = [r for r in rows if needle in r[1].lower()]
+
+    rows.sort(key=lambda r: r[0])
+    if not rows:
+        return json.dumps({
+            "success": True, "count": 0, "processes": [],
+            "note": f"No hay procesos que coincidan con '{search}'",
+        })
+
+    lines = [f"Procesos ({len(rows)}):"]
+    for pid, name, mem in rows[:limit]:
+        lines.append(f"  {name} (PID {pid}) - {mem}")
+    if len(rows) > limit:
+        lines.append(f"  ... y {len(rows) - limit} más")
+    return "\n".join(lines)

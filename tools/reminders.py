@@ -93,7 +93,9 @@ def set_reminder(message: str, seconds: int = 0, minutes: int = 0, hours: int = 
     else:
         return json.dumps({"error": "Specify seconds, minutes, hours, or an absolute time (at)", "success": False})
     if not _reminders:
-        _reminders[:] = _load()
+        with _lock:
+            if not _reminders:
+                _reminders[:] = _load()
     reminder = {
         "id": f"rem_{int(time.time())}",
         "message": message,
@@ -113,9 +115,10 @@ def set_reminder(message: str, seconds: int = 0, minutes: int = 0, hours: int = 
 @register(name="list_reminders", description="List all pending reminders.", tier="free")
 def list_reminders() -> str:
     global _reminders
-    if not _reminders:
-        _reminders[:] = _load()
-    pending = [r for r in _reminders if not r.get("fired")]
+    with _lock:
+        if not _reminders:
+            _reminders[:] = _load()
+        pending = [r for r in _reminders if not r.get("fired")]
     return json.dumps({
         "success": True,
         "count": len(pending),
@@ -133,12 +136,13 @@ def list_reminders() -> str:
 @register(name="cancel_reminder", description="Cancel a pending reminder by ID.", tier="free")
 def cancel_reminder(reminder_id: str) -> str:
     global _reminders
-    if not _reminders:
-        _reminders[:] = _load()
-    before = len(_reminders)
     with _lock:
+        if not _reminders:
+            _reminders[:] = _load()
+        before = len(_reminders)
         _reminders[:] = [r for r in _reminders if r.get("id") != reminder_id]
-    if len(_reminders) < before:
+        removed = before - len(_reminders)
+    if removed:
         _save()
         return json.dumps({"success": True, "cancelled": reminder_id})
     return json.dumps({"error": f"No reminder found with id: {reminder_id}", "success": False})

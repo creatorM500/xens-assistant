@@ -21,4 +21,6 @@ server/data/
 
 # OS
 Thumbs.db
-Desktop.ini
+Desktop.ini 
+# Update artifacts 
+_update_build/

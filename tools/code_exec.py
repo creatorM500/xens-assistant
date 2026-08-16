@@ -6,7 +6,7 @@ _SAFE_GLOBALS = {
     "abs": abs, "all": all, "any": any, "bin": bin, "bool": bool,
     "chr": chr, "dict": dict, "dir": dir, "divmod": divmod,
     "enumerate": enumerate, "filter": filter, "float": float,
-    "format": format, "frozenset": frozenset, "getattr": getattr,
+    "format": format, "frozenset": frozenset,
     "hasattr": hasattr, "hash": hash, "hex": hex, "id": id,
     "int": int, "isinstance": isinstance, "issubclass": issubclass,
     "iter": iter, "len": len, "list": list, "map": map,
@@ -15,8 +15,10 @@ _SAFE_GLOBALS = {
     "range": range, "repr": repr, "reversed": reversed,
     "round": round, "set": set, "slice": slice, "sorted": sorted,
     "str": str, "sum": sum, "tuple": tuple, "type": type,
-    "zip": zip, "__import__": __import__,
+    "zip": zip,
 }
+
+_SAFE_BUILTIN_NAMES = set(_SAFE_GLOBALS) | {"Exception", "ValueError", "TypeError", "KeyError", "IndexError", "AttributeError", "ZeroDivisionError", "RuntimeError", "StopIteration"}
 
 _DANGEROUS = [
     "os", "subprocess", "shutil", "socket", "ctypes",
@@ -79,7 +81,7 @@ def _exec_python(code):
     try:
         proc = subprocess.run(
             [sys.executable, "-c", code],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=_TIMEOUT,
             env={**os.environ, "PYTHONIOENCODING": "utf-8"}
         )
@@ -92,11 +94,16 @@ def _exec_python(code):
         return json.dumps({"error": str(e), "success": False})
 
 def _exec_python_embedded(code):
-    import io, contextlib
+    import io, contextlib, builtins
     buf = io.StringIO()
+    safe_globals = dict(_SAFE_GLOBALS)
+    safe_globals["__builtins__"] = {
+        name: getattr(builtins, name) for name in _SAFE_BUILTIN_NAMES
+        if hasattr(builtins, name)
+    }
     try:
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-            exec(compile(code, "<sandbox>", "exec"), dict(_SAFE_GLOBALS))
+            exec(compile(code, "<sandbox>", "exec"), safe_globals)
         output = buf.getvalue()
         return json.dumps({"success": True, "returncode": 0, "output": output[:_MAX_OUTPUT]})
     except Exception as e:
@@ -107,7 +114,7 @@ def _exec_javascript(code):
     try:
         proc = subprocess.run(
             ["node", "-e", code],
-            capture_output=True, text=True, timeout=_TIMEOUT
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_TIMEOUT
         )
         return _format_result(proc)
     except FileNotFoundError:
@@ -124,7 +131,7 @@ def _exec_bash(code):
     try:
         proc = subprocess.run(
             code,
-            capture_output=True, text=True, timeout=_TIMEOUT,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_TIMEOUT,
             shell=True, executable="cmd.exe" if sys.platform == "win32" else "/bin/bash"
         )
         return _format_result(proc)
@@ -137,7 +144,7 @@ def _exec_powershell(code):
     try:
         proc = subprocess.run(
             ["powershell", "-NoProfile", "-Command", code],
-            capture_output=True, text=True, timeout=_TIMEOUT
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_TIMEOUT
         )
         return _format_result(proc)
     except FileNotFoundError:

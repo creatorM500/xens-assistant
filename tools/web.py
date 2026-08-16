@@ -1,6 +1,8 @@
-import json, time, hashlib, logging, re
+import json, time, hashlib, logging, re, asyncio
 from pathlib import Path
 from urllib.parse import urlparse
+
+import httpx
 
 from ..core.utils import get_http_client
 
@@ -21,8 +23,11 @@ def _cache_get(key):
     cache_file = _CACHE_DIR / f"{key}.json"
     if not cache_file.exists():
         return None
-    if time.time() - cache_file.stat().st_mtime > _CACHE_TTL:
-        cache_file.unlink(missing_ok=True)
+    try:
+        if time.time() - cache_file.stat().st_mtime > _CACHE_TTL:
+            cache_file.unlink(missing_ok=True)
+            return None
+    except FileNotFoundError:
         return None
     try:
         return json.loads(cache_file.read_text(encoding="utf-8"))
@@ -40,12 +45,12 @@ def _cache_set(key, data):
     except Exception as e:
         logger.debug(f"Cache write failed: {e}")
 
-def _rate_limit():
+async def _rate_limit():
     global _last_request
     now = time.time()
     elapsed = now - _last_request
     if elapsed < _RATE_LIMIT:
-        time.sleep(_RATE_LIMIT - elapsed)
+        await asyncio.sleep(_RATE_LIMIT - elapsed)
     _last_request = time.time()
 
 def _strip_html(html):
@@ -152,7 +157,7 @@ async def web_fetch(url: str, max_chars: int = 8000, format: str = "markdown") -
         logger.debug(f"Fetch cache hit for '{url[:40]}'")
         return json.dumps(cached)
 
-    _rate_limit()
+    await _rate_limit()
 
     try:
         r = await get_http_client().get(url, timeout=30)

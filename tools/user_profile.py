@@ -72,6 +72,8 @@ def _make_cognitive_entry(value: str) -> dict:
 
 
 def _apply_decay(entry: dict):
+    if not isinstance(entry, dict):
+        return
     try:
         updated = datetime.fromisoformat(entry.get("last_updated", ""))
         days = (datetime.now() - updated).days
@@ -85,7 +87,7 @@ def _apply_decay(entry: dict):
 def _reinforce_cognitive(key: str, value: str, data: dict):
     cog = data.setdefault("cognitive_facts", {})
     existing = cog.get(key)
-    if existing:
+    if isinstance(existing, dict):
         existing["value"] = value
         existing["confidence"] = min(CONFIDENCE_MAX, existing.get("confidence", CONFIDENCE_INITIAL) + CONFIDENCE_BOOST)
         existing["times_mentioned"] = existing.get("times_mentioned", 0) + 1
@@ -99,6 +101,8 @@ def _run_decay(data: dict):
     cog = data.get("cognitive_facts", {})
     for key in list(cog.keys()):
         entry = cog[key]
+        if not isinstance(entry, dict):
+            continue
         _apply_decay(entry)
         if entry["confidence"] <= CONFIDENCE_MIN:
             try:
@@ -221,7 +225,7 @@ def aprender_contexto() -> str:
         lines.append("Datos del usuario:")
         for k, v in data["profile"].items():
             cog = data.get("cognitive_facts", {}).get(k, {})
-            if cog and cog.get("confidence", CONFIDENCE_INITIAL) < 0.15:
+            if isinstance(cog, dict) and cog.get("confidence", CONFIDENCE_INITIAL) < 0.15:
                 continue
             lines.append(f"  {k}: {v['valor']}")
     if data.get("preferences"):
@@ -401,7 +405,7 @@ def cognitive_recall(key: str = "") -> str:
     cog = data.get("cognitive_facts", {})
     if key:
         entry = cog.get(key)
-        if entry:
+        if isinstance(entry, dict):
             _apply_decay(entry)
             return json.dumps({
                 "success": True,
@@ -413,7 +417,7 @@ def cognitive_recall(key: str = "") -> str:
         return json.dumps({"success": False, "message": f"No recuerdo '{key}'"})
     if not cog:
         return json.dumps({"success": True, "facts": {}, "message": "Memoria cognitiva vacia"})
-    active = {k: v for k, v in cog.items() if v.get("confidence", 0) >= 0.15}
+    active = {k: v for k, v in cog.items() if isinstance(v, dict) and v.get("confidence", 0) >= 0.15}
     lines = ["Memoria cognitiva activa:"]
     for k, v in sorted(active.items(), key=lambda x: -x[1].get("confidence", 0)):
         lines.append(f"  {k}: {v['value']} (confianza: {v['confidence']:.2f})")
@@ -430,7 +434,7 @@ def cognitive_snapshot() -> str:
     data = _load()
     _run_decay(data)
     cog = data.get("cognitive_facts", {})
-    active = {k: v for k, v in cog.items() if v.get("confidence", 0) >= 0.15}
+    active = {k: v for k, v in cog.items() if isinstance(v, dict) and v.get("confidence", 0) >= 0.15}
     return json.dumps({
         "success": True,
         "facts_count": len(active),
@@ -548,7 +552,7 @@ def user_profile() -> str:
     cog_facts = data.get("cognitive_facts", {})
     snippets = data.get("snippets", [])
 
-    active_cog = {k: v for k, v in cog_facts.items() if v.get("confidence", 0) >= 0.15}
+    active_cog = {k: v for k, v in cog_facts.items() if isinstance(v, dict) and v.get("confidence", 0) >= 0.15}
 
     summary = {
         "profile_fields": len(profile),

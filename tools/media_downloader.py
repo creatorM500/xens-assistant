@@ -3,17 +3,45 @@ import os
 import re
 import time
 from datetime import datetime
+from urllib.parse import urlparse
 from .registry import register
 
 DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), ".xens", "downloads")
 HISTORY_FILE = os.path.join(DOWNLOAD_DIR, "_history.json")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
+
+
+def _validate_url(url: str) -> str:
+    if not url or not isinstance(url, str) or not url.strip():
+        raise ValueError("URL es requerida")
+    url = url.strip()
+    if not _URL_RE.match(url):
+        raise ValueError("La URL debe empezar con http:// o https://")
+    parsed = urlparse(url)
+    if not parsed.netloc:
+        raise ValueError("La URL no es válida (sin host)")
+    return url
+
 try:
     import yt_dlp
     _HAS_YDL = True
 except Exception:
     _HAS_YDL = False
+
+
+def _get_ytdlp():
+    """Devuelve el módulo yt_dlp, instalándolo si hay consentimiento."""
+    if _HAS_YDL:
+        return yt_dlp
+    try:
+        from ..core.dependencies import ensure
+        ensure("yt_dlp")
+        import yt_dlp as _ydl
+        return _ydl
+    except Exception:
+        return None
 
 _PROGRESS = {}
 
@@ -26,8 +54,9 @@ def _unique_path(ext: str) -> str:
 def _load_history() -> list:
     try:
         if os.path.exists(HISTORY_FILE):
-            with open(HISTORY_FILE, "r") as f:
-                return json.load(f)
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
     except Exception:
         pass
     return []
@@ -38,8 +67,8 @@ def _save_history(entry: dict):
     h.insert(0, entry)
     if len(h) > 200:
         h = h[:200]
-    with open(HISTORY_FILE, "w") as f:
-        json.dump(h, f, indent=2)
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(h, f, indent=2, ensure_ascii=False)
 
 
 def _progress_hook(d):
@@ -65,10 +94,12 @@ def _progress_hook(d):
     tier="premium",
 )
 def list_formats(url: str) -> str:
-    if not _HAS_YDL:
-        return "yt-dlp no instalado. pip install yt-dlp"
+    ydl_mod = _get_ytdlp()
+    if not ydl_mod:
+        return "yt-dlp no disponible. Aceptá la instalación de dependencias en Configuración."
     try:
-        ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True})
+        url = _validate_url(url)
+        ydl = ydl_mod.YoutubeDL({"quiet": True, "no_warnings": True})
         info = ydl.extract_info(url, download=False)
         lines = [f"Titulo: {info.get('title', '?')}"]
         if info.get("duration"):
@@ -111,9 +142,17 @@ def list_formats(url: str) -> str:
     tier="premium",
 )
 def download_video(url: str, format_id: str = "best", audio_only: bool = False) -> str:
-    if not _HAS_YDL:
-        return "yt-dlp no instalado. pip install yt-dlp"
+    ydl_mod = _get_ytdlp()
+    if not ydl_mod:
+        return "yt-dlp no disponible. Aceptá la instalación de dependencias en Configuración."
     try:
+        url = _validate_url(url)
+        if audio_only:
+            try:
+                from ..core.dependencies import ensure
+                ensure("ffmpeg")
+            except Exception as e:
+                return f"FFmpeg necesario para extraer audio: {e}"
         ext = "mp3" if audio_only else "mp4"
         output = _unique_path(f".{ext}")
         opts = {
@@ -130,7 +169,7 @@ def download_video(url: str, format_id: str = "best", audio_only: bool = False) 
         else:
             opts["format"] = "best[ext=mp4]/best"
 
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        with ydl_mod.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
             title = info.get("title", url)
 

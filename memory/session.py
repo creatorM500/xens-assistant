@@ -61,6 +61,16 @@ class Session:
         self._dirty = True
         self.save()
 
+    def pop_last(self, role):
+        """Elimina el último mensaje con el rol dado (rehacer/editar)."""
+        for i in range(len(self.messages) - 1, -1, -1):
+            if self.messages[i]["role"] == role:
+                self.messages.pop(i)
+                self._dirty = True
+                self.save()
+                return True
+        return False
+
     def get_context(self, limit=30):
         return self.messages[-limit:]
 

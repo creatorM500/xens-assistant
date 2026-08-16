@@ -11,8 +11,9 @@ REFLECTIONS_FILE = os.path.join(DATA_DIR, "reflections.json")
 def _load():
     try:
         if os.path.exists(REFLECTIONS_FILE):
-            with open(REFLECTIONS_FILE, "r") as f:
-                return json.load(f)
+            with open(REFLECTIONS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
     except Exception:
         pass
     return []
@@ -20,8 +21,8 @@ def _load():
 
 def _save(data):
     os.makedirs(DATA_DIR, exist_ok=True)
-    with open(REFLECTIONS_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    with open(REFLECTIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 @register(

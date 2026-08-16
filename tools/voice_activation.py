@@ -1,4 +1,4 @@
-import os, tempfile, threading, time
+import json, os, tempfile, threading, time
 from datetime import datetime
 from typing import Optional
 from .registry import register
@@ -26,26 +26,28 @@ class VoiceActivator:
         self._whisper_model = None
         self._stream = None
 
-    def start(self, mode: str = "wake_word"):
+    def start(self, mode: str = "wake_word") -> Optional[str]:
+        """Devuelve None si arrancó OK, o un mensaje de error."""
         if self._running:
-            return
+            return None
         self._wake_mode = mode in ("wake_word", "conversation")
         self._conversation_mode = mode == "conversation"
         try:
             import sounddevice as sd
         except ImportError:
-            return
+            return "sounddevice no instalado (pip install sounddevice)"
         try:
             from faster_whisper import WhisperModel
             self._whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
         except Exception:
-            return
+            return "faster_whisper no disponible o falló la carga del modelo"
         self._running = True
         self._stop.clear()
         self._stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32")
         self._stream.start()
         self._thread = threading.Thread(target=self._loop, daemon=True, name="voice-activator")
         self._thread.start()
+        return None
 
     def stop(self):
         self._running = False
@@ -149,8 +151,10 @@ def get_activator() -> VoiceActivator:
 @register(name="start_voice_activation", description="Iniciar deteccion de voz continua (always listening)", parameters={"type": "object", "properties": {"mode": {"type": "string", "enum": ["wake_word", "conversation"], "description": "wake_word: espera a 'XENS', conversation: loop automatico"}}, "required": []}, tier="premium")
 def start_voice_activation(mode: str = "wake_word") -> str:
     act = get_activator()
-    act.start(mode=mode)
-    return f"Activacion de voz iniciada (modo: {mode})"
+    err = act.start(mode=mode)
+    if err:
+        return json.dumps({"error": err, "success": False})
+    return json.dumps({"success": True, "message": f"Activacion de voz iniciada (modo: {mode})"})
 
 @register(name="stop_voice_activation", description="Detener deteccion de voz continua", parameters={"type": "object", "properties": {}, "required": []}, tier="premium", internal=True)
 def stop_voice_activation() -> str:

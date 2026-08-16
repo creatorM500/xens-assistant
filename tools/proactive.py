@@ -12,6 +12,7 @@ class ProactiveEngine:
         self._last_window = ""
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
 
     def start(self):
         if self._running:
@@ -24,13 +25,18 @@ class ProactiveEngine:
         self._running = False
 
     def observe_window(self, title: str):
-        self._recent.append(("window", title, time.time()))
-        if title and title != self._last_window:
-            self._last_window = title
+        changed = False
+        with self._lock:
+            self._recent.append(("window", title, time.time()))
+            if title and title != self._last_window:
+                self._last_window = title
+                changed = True
+        if changed:
             self._generate_window_suggestion(title)
 
     def observe_clipboard(self, text: str):
-        self._recent.append(("clipboard", text[:80], time.time()))
+        with self._lock:
+            self._recent.append(("clipboard", text[:80], time.time()))
         self._generate_clipboard_suggestion(text)
 
     def _generate_window_suggestion(self, title: str):
@@ -69,22 +75,25 @@ class ProactiveEngine:
             })
 
     def pop_suggestion(self) -> Optional[dict]:
-        if self._suggestions:
-            return self._suggestions.popleft()
+        with self._lock:
+            if self._suggestions:
+                return self._suggestions.popleft()
         return None
 
     def get_all_suggestions(self) -> list:
-        return list(self._suggestions)
+        with self._lock:
+            return list(self._suggestions)
 
     def get_context(self) -> dict:
-        ctx = {
-            "last_window": self._last_window,
-            "recent_events": [],
-        }
-        for etype, edata, ts in self._recent:
-            age = time.time() - ts
-            if age < 30:
-                ctx["recent_events"].append({"type": etype, "data": edata, "seconds_ago": int(age)})
+        with self._lock:
+            ctx = {
+                "last_window": self._last_window,
+                "recent_events": [],
+            }
+            for etype, edata, ts in self._recent:
+                age = time.time() - ts
+                if age < 30:
+                    ctx["recent_events"].append({"type": etype, "data": edata, "seconds_ago": int(age)})
         return ctx
 
     def _loop(self):

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Iniciar sesión — XENS</title>
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+
+  <div class="auth-shell">
+    <div class="auth-card">
+      <div class="auth-brand"><a href="landing.html">XENS</a></div>
+      <p class="auth-subtitle">Accede a tu asistente de IA</p>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tabLogin" type="button">Iniciar sesión</button>
+        <button class="auth-tab" id="tabRegister" type="button">Crear cuenta</button>
+      </div>
+
+      <!-- LOGIN FORM -->
+      <form class="auth-form" id="formLogin">
+        <div>
+          <label class="field-label" for="loginEmail">Correo electrónico</label>
+          <input class="field-input" type="email" id="loginEmail" required placeholder="tucorreo@ejemplo.com">
+        </div>
+        <div>
+          <label class="field-label" for="loginPassword">Contraseña</label>
+          <input class="field-input" type="password" id="loginPassword" required placeholder="••••••••">
+        </div>
+        <a href="#" class="auth-forgot" id="forgotPassword">¿Olvidaste tu contraseña?</a>
+        <button type="submit" class="btn btn-primary btn-block">Iniciar sesión</button>
+      </form>
+
+      <!-- REGISTER FORM -->
+      <form class="auth-form" id="formRegister" style="display:none;">
+        <div>
+          <label class="field-label" for="registerName">Nombre</label>
+          <input class="field-input" type="text" id="registerName" required placeholder="Tu nombre">
+        </div>
+        <div>
+          <label class="field-label" for="registerEmail">Correo electrónico</label>
+          <input class="field-input" type="email" id="registerEmail" required placeholder="tucorreo@ejemplo.com">
+        </div>
+        <div>
+          <label class="field-label" for="registerPassword">Contraseña</label>
+          <input class="field-input" type="password" id="registerPassword" required minlength="6" placeholder="Mínimo 6 caracteres">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Crear cuenta</button>
+      </form>
+
+      <div class="auth-divider">o continúa con</div>
+
+      <div class="oauth-row">
+        <button class="oauth-btn" id="googleBtn" type="button">
+          <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 10.2v3.9h5.5c-.24 1.4-1.7 4.1-5.5 4.1-3.3 0-6-2.7-6-6.2s2.7-6.2 6-6.2c1.9 0 3.15.8 3.9 1.5l2.65-2.55C16.9 3.05 14.7 2.1 12 2.1 6.9 2.1 2.75 6.25 2.75 11.35S6.9 20.6 12 20.6c6.9 0 9.5-4.85 9.5-7.35 0-.5-.05-.85-.12-1.2H12z"/></svg>
+          Continuar con Google
+        </button>
+        <button class="oauth-btn" id="githubBtn" type="button">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.5v-1.75c-2.78.62-3.37-1.36-3.37-1.36-.46-1.2-1.11-1.52-1.11-1.52-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.34 1.12 2.91.86.09-.66.35-1.12.64-1.38-2.22-.26-4.56-1.14-4.56-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.31.1-2.72 0 0 .84-.28 2.75 1.05a9.3 9.3 0 0 1 5 0c1.9-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.46.1 2.72.64.72 1.03 1.63 1.03 2.75 0 3.93-2.34 4.79-4.57 5.05.36.32.68.94.68 1.9v2.82c0 .28.18.61.69.5A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2z"/></svg>
+          Continuar con GitHub
+        </button>
+      </div>
+
+      <p class="auth-error" id="authError"></p>
+      <p class="auth-footnote">Al continuar aceptas los <a href="terms.html">Términos</a> y la <a href="privacy.html">Privacidad</a> de XENS.</p>
+    </div>
+  </div>
+
+  <!-- Firebase (compat SDK) -->
+  <script src="firebase-config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="auth.js"></script>
+  <script src="login.js"></script>
+</body>
+</html>

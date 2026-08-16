@@ -11,8 +11,15 @@ ANALYTICS_FILE = os.path.join(DATA_DIR, "analytics.json")
 def _load():
     try:
         if os.path.exists(ANALYTICS_FILE):
-            with open(ANALYTICS_FILE, "r") as f:
-                return json.load(f)
+            with open(ANALYTICS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if not isinstance(data, dict):
+                    return {"tool_calls": {}, "costs": [], "sessions": [], "errors": []}
+                data.setdefault("tool_calls", {})
+                data.setdefault("costs", [])
+                data.setdefault("sessions", [])
+                data.setdefault("errors", [])
+                return data
     except Exception:
         pass
     return {"tool_calls": {}, "costs": [], "sessions": [], "errors": []}
@@ -20,8 +27,8 @@ def _load():
 
 def _save(data):
     os.makedirs(DATA_DIR, exist_ok=True)
-    with open(ANALYTICS_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    with open(ANALYTICS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 @register(

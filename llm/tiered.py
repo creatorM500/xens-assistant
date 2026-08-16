@@ -11,6 +11,7 @@ class TieredProvider(BaseLLM):
     def __init__(self, providers: dict[str, BaseLLM]):
         self._providers = providers
         self._cooldown: dict[str, float] = {}
+        self._cooldown_ttl: dict[str, float] = {}
         self._lock = threading.Lock()
         self._health_ttl = 60.0
 
@@ -18,15 +19,22 @@ class TieredProvider(BaseLLM):
         with self._lock:
             if name not in self._cooldown:
                 return True
-            return time.time() - self._cooldown[name] > self._health_ttl
+            ttl = self._cooldown_ttl.get(name, self._health_ttl)
+            return time.time() - self._cooldown[name] > ttl
 
-    def _mark_unhealthy(self, name: str):
+    def _mark_unhealthy(self, name: str, exc: Exception = None):
+        ttl = self._health_ttl
+        if exc:
+            msg = str(exc).lower()
+            if "rate limit" in msg or "429" in msg:
+                ttl = 15.0
         with self._lock:
             self._cooldown[name] = time.time()
-        logger.warning("Provider '%s' unhealthy, cooling down %.0fs", name, self._health_ttl)
+            self._cooldown_ttl[name] = ttl
+        logger.warning("Provider '%s' unhealthy, cooling down %.0fs", name, ttl)
 
     async def chat(self, messages: list[Message], tools: list = None,
-                   tier: str = "free", **kwargs) -> LLMResult:
+                   tier: str = "free", background: bool = False, **kwargs) -> LLMResult:
         models = tier_config.get_models(tier)
         if not models:
             raise RuntimeError(f"No models configured for tier '{tier}'")
@@ -44,13 +52,14 @@ class TieredProvider(BaseLLM):
             except Exception as e:
                 last_error = e
                 logger.warning("Provider '%s' model '%s': %s", provider_name, model_name, e)
-                self._mark_unhealthy(provider_name)
+                if not background:
+                    self._mark_unhealthy(provider_name, e)
                 if len(models) > 1:
                     await asyncio.sleep(0.5)
         raise last_error or RuntimeError(f"No providers available for tier '{tier}'")
 
     async def chat_stream(self, messages: list[Message], tools: list = None,
-                          tier: str = "free", **kwargs) -> AsyncIterator[str]:
+                          tier: str = "free", background: bool = False, **kwargs) -> AsyncIterator[str]:
         models = tier_config.get_models(tier)
         if not models:
             yield f"\n[No models configured for tier '{tier}']"
@@ -70,7 +79,8 @@ class TieredProvider(BaseLLM):
             except Exception as e:
                 last_error = e
                 logger.warning("Provider '%s' model '%s' stream: %s", provider_name, model_name, e)
-                self._mark_unhealthy(provider_name)
+                if not background:
+                    self._mark_unhealthy(provider_name, e)
                 if len(models) > 1:
                     await asyncio.sleep(0.5)
         if last_error:
@@ -84,10 +94,10 @@ class TieredProvider(BaseLLM):
         return 0
 
     async def get_embedding(self, text: str) -> Optional[list[float]]:
-        for p in self._providers.values():
-            if self._available(p.__class__.__name__.lower()):
+        for name, p in self._providers.items():
+            if self._available(name):
                 try:
                     return await p.get_embedding(text)
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning("Embedding provider '%s' failed: %s", name, e)
         return None

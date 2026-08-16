@@ -41,25 +41,34 @@ class TierConfig:
         path = path or TIER_FILE
         if path.exists():
             try:
-                with open(path) as f:
-                    self._data = json.load(f)
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    raise ValueError("tier config must be a JSON object")
+                self._data = data
                 self._source = str(path)
                 logger.info("Loaded tier config from %s", path)
                 return
-            except:
+            except Exception:
                 logger.exception("Failed to load tier config from %s", path)
         self._data = DEFAULT_CONFIG
         self._source = "defaults"
         TIER_FILE.parent.mkdir(parents=True, exist_ok=True)
-        TIER_FILE.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
-        logger.info("Wrote default tier config to %s", TIER_FILE)
+        # No sobrescribir un archivo existente (pero corrupto) con los defaults:
+        # el usuario pierde su configuración. Solo escribir si no existía.
+        if not path.exists():
+            TIER_FILE.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
+            logger.info("Wrote default tier config to %s", TIER_FILE)
 
     def load_from_url(self, url: str) -> str:
         import httpx
         try:
             resp = httpx.get(url, timeout=15)
             resp.raise_for_status()
-            self._data = resp.json()
+            data = resp.json()
+            if not isinstance(data, dict):
+                raise ValueError("tier config must be a JSON object")
+            self._data = data
             self._source = url
             TIER_FILE.parent.mkdir(parents=True, exist_ok=True)
             TIER_FILE.write_text(json.dumps(self._data, indent=2), encoding="utf-8")

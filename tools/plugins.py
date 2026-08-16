@@ -52,8 +52,11 @@ def _discover():
         init_path = os.path.join(plugin_path, "__init__.py")
         if not os.path.isfile(json_path) or not os.path.isfile(init_path):
             continue
+        modname = f"user_plugins.{entry}"
+        if modname in sys.modules:
+            continue
         try:
-            spec = importlib.util.spec_from_file_location(f"user_plugins.{entry}", init_path)
+            spec = importlib.util.spec_from_file_location(modname, init_path)
             if spec and spec.loader:
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
@@ -65,7 +68,24 @@ def _discover():
                 loaded.append(entry)
         except Exception:
             pass
+    _register_plugin_tools()
     return loaded
+
+
+def _register_plugin_tools():
+    """Registra las herramientas de los plugins en el registry para que sean ejecutables."""
+    from .registry import registry
+    for name, fn, schema in _plugin_cache:
+        if name in registry.tool_names:
+            continue
+        func = (schema or {}).get("function", {}) if isinstance(schema, dict) else {}
+        registry.register(
+            name, fn,
+            description=func.get("description") or f"Plugin tool: {name}",
+            parameters=func.get("parameters") or {"type": "object", "properties": {}},
+            tier="free",
+            timeout=120,
+        )
 
 
 @register(

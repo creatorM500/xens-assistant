@@ -123,31 +123,42 @@ def win32_key_combo(*keys: str) -> str:
         time.sleep(0.02)
     return json.dumps({"success": True, "action": "key_combo", "keys": list(keys)})
 
-_SHIFT_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()_+{}|:\"<>?~")
+_SYMBOL_MAP = {
+    "!": (0x31, True), "@": (0x32, True), "#": (0x33, True), "$": (0x34, True),
+    "%": (0x35, True), "^": (0x36, True), "&": (0x37, True), "*": (0x38, True),
+    "(": (0x39, True), ")": (0x30, True),
+    "_": (0xBD, True), "+": (0xBB, True), "{": (0xDB, True), "}": (0xDD, True),
+    "|": (0xDC, True), ":": (0xBA, True), '"': (0xDE, True), "<": (0xBC, True),
+    ">": (0xBE, True), "?": (0xBF, True), "~": (0xC0, True),
+}
 
 @register(name="win32_type", description="Type text using keyboard simulation.", tier="free")
 def win32_type(text: str) -> str:
     if not HAS_USER32:
         return json.dumps({"error": "Win32 API not available", "success": False})
+    typed = 0
     for ch in text:
-        vk = _VK_MAP.get(ch.lower()) if ch.isalpha() else _VK_MAP.get(ch)
-        if vk is not None:
-            shift = ch in _SHIFT_CHARS
-            if shift:
-                _send_key_down(0x10)
-            _send_key_down(vk)
-            time.sleep(0.005)
-            _send_key_up(vk)
-            if shift:
-                _send_key_up(0x10)
-        else:
+        vk = None
+        shift = False
+        if ch.isalpha():
+            vk = 0x41 + (ord(ch.lower()) - ord("a"))
+            shift = ch.isupper()
+        elif ch in _VK_MAP:
+            vk = _VK_MAP[ch]
+        elif ch in _SYMBOL_MAP:
+            vk, shift = _SYMBOL_MAP[ch]
+        if vk is None:
+            continue
+        if shift:
             _send_key_down(0x10)
-            _send_key_down(_VK_MAP["space"])
-            time.sleep(0.005)
-            _send_key_up(_VK_MAP["space"])
-            _send_key_up(0x10)
+        _send_key_down(vk)
         time.sleep(0.005)
-    return json.dumps({"success": True, "action": "type", "length": len(text)})
+        _send_key_up(vk)
+        if shift:
+            _send_key_up(0x10)
+        typed += 1
+        time.sleep(0.005)
+    return json.dumps({"success": True, "action": "type", "length": typed})
 
 # ─── Win32 Window Control ───────────────────────────────────────
 
@@ -247,9 +258,19 @@ def _get_window(title: str):
         win = uia.WindowControl(searchDepth=1, Name=title)
         if win.Exists(maxSearchSeconds=2):
             return win
-        return None
     except Exception:
-        return None
+        pass
+    # Fallback: coincidencia parcial del título (ej. "Opera" -> "XENS — Opera")
+    try:
+        for w in uia.GetRootControl().GetChildren():
+            try:
+                if title.lower() in (w.Name or "").lower():
+                    return w
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
 
 @register(name="uia_get_elements", description="List UI elements within a window (UIA).", tier="free")
 def uia_get_elements(window_title: str) -> str:
@@ -262,18 +283,28 @@ def uia_get_elements(window_title: str) -> str:
         win.SetFocus()
         time.sleep(0.3)
         elements = []
+        seen = set()
         def walk(control, depth=0):
             if depth > 6:
                 return
-            if control.ControlTypeName in (
+            try:
+                ctype_name = control.ControlTypeName
+                cname = control.Name
+            except Exception:
+                return
+            if ctype_name in (
                 "ButtonControl", "EditControl", "TextControl", "ComboBoxControl",
                 "ListItemControl", "HyperlinkControl", "CheckBoxControl", "RadioButtonControl",
                 "TabItemControl", "MenuItemControl", "TreeItemControl",
                 "SliderControl", "ToolBarControl", "PaneControl",
             ):
-                name = control.Name
-                ctype = control.ControlTypeName.replace("Control", "")
+                name = cname
+                ctype = ctype_name.replace("Control", "")
                 if name:
+                    key = (ctype, name)
+                    if key in seen:
+                        return
+                    seen.add(key)
                     rect = None
                     try:
                         r = control.BoundingRectangle
@@ -282,7 +313,11 @@ def uia_get_elements(window_title: str) -> str:
                     except Exception:
                         pass
                     elements.append({"type": ctype, "name": name, "rect": rect})
-            for child in control.GetChildren():
+            try:
+                children = control.GetChildren()
+            except Exception:
+                return
+            for child in children:
                 walk(child, depth + 1)
         walk(win)
         return json.dumps({"success": True, "window": window_title, "count": len(elements), "elements": elements})

@@ -36,8 +36,6 @@ async def _send_via_cdp(expression: str) -> str:
     tier="premium",
 )
 async def whatsapp_send(contact: str, message: str) -> str:
-    msg_escaped = message.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
-    contact_escaped = contact.replace("'", "\\'")
     js = f"""
     (() => {{
         const searchBox = document.querySelector('div[contenteditable="true"][data-tab="3"]');
@@ -45,16 +43,17 @@ async def whatsapp_send(contact: str, message: str) -> str:
         searchBox.focus();
         searchBox.innerText = '';
         searchBox.dispatchEvent(new Event('input', {{bubbles:true}}));
-        document.execCommand('insertText', false, '{contact_escaped}');
+        document.execCommand('insertText', false, {json.dumps(contact)});
         setTimeout(() => {{
-            const chat = document.querySelector('span[title*="{contact_escaped}"]');
+            const sel = 'span[title*="' + CSS.escape({json.dumps(contact)}) + '"]';
+            const chat = document.querySelector(sel);
             if (chat) chat.click();
         }}, 1000);
         setTimeout(() => {{
             const input = document.querySelector('div[contenteditable="true"][data-tab="10"]');
             if (!input) return;
             input.focus();
-            document.execCommand('insertText', false, '{msg_escaped}');
+            document.execCommand('insertText', false, {json.dumps(message)});
             input.dispatchEvent(new Event('input', {{bubbles:true}}));
             const sendBtn = document.querySelector('span[data-icon="send"]');
             if (sendBtn) sendBtn.click();

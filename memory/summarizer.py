@@ -1,14 +1,22 @@
-import json, logging
-from ..core.config import MODEL, API_KEY
+import json, logging, time
+from ..llm.base import Message
+from ..core.llm import get_provider
 from ..memory.profile import profile
 
 logger = logging.getLogger("xens.memory")
 
-async def summarize_conversation(messages):
-    if not API_KEY:
-        return ""
+_last_summary = 0.0
+_last_userinfo = 0.0
 
-    import httpx
+def _to_messages(chat: list[dict]) -> list[Message]:
+    return [Message(role=m["role"], content=m.get("content", "")) for m in chat]
+
+async def summarize_conversation(messages):
+    global _last_summary
+    if time.time() - _last_summary < 90.0:
+        return ""
+    _last_summary = time.time()
+
     recent = [m for m in messages[-20:] if m["role"] in ("user", "assistant") and isinstance(m.get("content"), str)]
     if len(recent) < 4:
         return ""
@@ -20,27 +28,25 @@ async def summarize_conversation(messages):
     ]
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                "https://api.mistral.ai/v1/chat/completions",
-                json={"model": MODEL, "messages": chat, "max_tokens": 100, "temperature": 0.3},
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {API_KEY}"}
-            )
-            if resp.status_code == 200:
-                summary = resp.json()["choices"][0]["message"]["content"]
-                profile.last_summary = summary
-                profile.save()
-                return summary
-    except:
-        pass
+        provider = get_provider()
+        result = await provider.chat(_to_messages(chat), tier="free", background=True,
+                                     max_tokens=100, temperature=0.3)
+        summary = (result.content or "").strip()
+        if summary:
+            profile.last_summary = summary
+            profile.save()
+            return summary
+    except Exception as e:
+        logger.warning("summarize_conversation failed: %s", e)
     return ""
 
 
 async def extract_user_info(messages):
-    if not API_KEY:
+    global _last_userinfo
+    if time.time() - _last_userinfo < 30.0:
         return
+    _last_userinfo = time.time()
 
-    import httpx
     last = messages[-1] if messages else {}
     if last.get("role") != "user":
         return
@@ -63,16 +69,12 @@ async def extract_user_info(messages):
     ]
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(
-                "https://api.mistral.ai/v1/chat/completions",
-                json={"model": MODEL, "messages": chat, "max_tokens": 60, "temperature": 0.2},
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {API_KEY}"}
-            )
-            if resp.status_code == 200:
-                fact = resp.json()["choices"][0]["message"]["content"].strip()
-                if fact and fact != "NONE":
-                    profile.learn_fact(fact)
-                    logger.info(f"Learned: {fact}")
-    except:
-        pass
+        provider = get_provider()
+        result = await provider.chat(_to_messages(chat), tier="free", background=True,
+                                     max_tokens=60, temperature=0.2)
+        fact = (result.content or "").strip()
+        if fact and fact != "NONE":
+            profile.learn_fact(fact)
+            logger.info(f"Learned: {fact}")
+    except Exception as e:
+        logger.warning("extract_user_info failed: %s", e)

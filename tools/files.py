@@ -39,8 +39,12 @@ def _resolve(path_str, base=None):
 
     blocked = {"C:\\Windows", "C:\\Windows\\System32", "C:\\Program Files", "C:\\Program Files (x86)"}
     for b in blocked:
-        if str(p).lower().startswith(b.lower()):
+        if p.is_relative_to(Path(b)):
             raise PermissionError(f"Access denied to system directory: {b}")
+
+    xens_state = Path(_HOME) / ".xens"
+    if p.is_relative_to(xens_state):
+        raise PermissionError("Access denied to Xens internal state (~/.xens)")
 
     return p
 
@@ -285,24 +289,29 @@ def grep_files(root: str = ".", pattern: str = "", include: str = None, max_resu
 @register(name="diff_files", description="Compare two files line-by-line. Returns a unified diff.", tier="free")
 def diff_files(path_a: str, path_b: str, context_lines: int = 3) -> str:
     try:
-        with open(path_a, "r", encoding="utf-8-sig", errors="replace") as f:
+        pa = _resolve(path_a)
+        pb = _resolve(path_b)
+    except (PermissionError, ValueError) as e:
+        return json.dumps({"error": str(e), "success": False})
+    try:
+        with open(pa, "r", encoding="utf-8-sig", errors="replace") as f:
             content_a = f.read()
     except FileNotFoundError:
-        return json.dumps({"error": f"File not found: {path_a}", "success": False})
+        return json.dumps({"error": f"File not found: {pa}", "success": False})
     except Exception as e:
-        return json.dumps({"error": f"Failed to read {path_a}: {e}", "success": False})
+        return json.dumps({"error": f"Failed to read {pa}: {e}", "success": False})
     try:
-        with open(path_b, "r", encoding="utf-8-sig", errors="replace") as f:
+        with open(pb, "r", encoding="utf-8-sig", errors="replace") as f:
             content_b = f.read()
     except FileNotFoundError:
-        return json.dumps({"error": f"File not found: {path_b}", "success": False})
+        return json.dumps({"error": f"File not found: {pb}", "success": False})
     except Exception as e:
-        return json.dumps({"error": f"Failed to read {path_b}: {e}", "success": False})
+        return json.dumps({"error": f"Failed to read {pb}: {e}", "success": False})
     if content_a == content_b:
         return json.dumps({"success": True, "identical": True, "diff": "Files are identical"})
     lines_a = content_a.splitlines(keepends=True)
     lines_b = content_b.splitlines(keepends=True)
     context_lines = max(0, min(context_lines, 20))
-    diff = list(difflib.unified_diff(lines_a, lines_b, fromfile=path_a, tofile=path_b, n=context_lines))
+    diff = list(difflib.unified_diff(lines_a, lines_b, fromfile=str(pa), tofile=str(pb), n=context_lines))
     diff_text = "".join(diff)
     return json.dumps({"success": True, "identical": False, "lines_a": len(lines_a), "lines_b": len(lines_b), "diff_lines": len(diff), "diff": diff_text[:10000], "truncated": len(diff_text) > 10000})

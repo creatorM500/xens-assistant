@@ -66,8 +66,8 @@ class Rule:
     @classmethod
     def from_dict(cls, d: dict) -> "Rule":
         r = cls(
-            name=d["name"],
-            event_pattern=d["event_pattern"],
+            name=str(d.get("name") or "unnamed"),
+            event_pattern=str(d.get("event_pattern") or ""),
             condition=d.get("condition"),
             action=d.get("action", "log"),
             action_config=d.get("action_config"),
@@ -128,16 +128,21 @@ class AutomationEngine:
         if not self._running:
             return
         for rule in self.rules:
-            if rule.matches(event):
-                handler = self._action_handlers.get(rule.action)
-                if handler:
-                    try:
-                        handler(rule, event)
-                        rule.trigger_count += 1
-                        rule.last_triggered = time.time()
-                        self._save_rules()
-                    except Exception as e:
-                        logger.error("Rule '%s' error: %s", rule.name, e)
+            try:
+                if not rule.matches(event):
+                    continue
+            except Exception as e:
+                logger.warning("Rule '%s' match error: %s", getattr(rule, "name", "?"), e)
+                continue
+            handler = self._action_handlers.get(rule.action)
+            if handler:
+                try:
+                    handler(rule, event)
+                    rule.trigger_count += 1
+                    rule.last_triggered = time.time()
+                    self._save_rules()
+                except Exception as e:
+                    logger.error("Rule '%s' error: %s", rule.name, e)
 
     def _action_log(self, rule: Rule, event: Event):
         logger.info("[AUTO] %s: %s -> %s", rule.name, event.type, json.dumps(event.data)[:100])
@@ -147,7 +152,8 @@ class AutomationEngine:
             if os.path.exists(self.rules_path):
                 with open(self.rules_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    self.rules = [Rule.from_dict(r) for r in data]
+                    if isinstance(data, list):
+                        self.rules = [Rule.from_dict(r) for r in data if isinstance(r, dict)]
         except Exception as e:
             logger.warning("Error loading rules: %s", e)
 

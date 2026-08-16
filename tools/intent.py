@@ -3,7 +3,8 @@ from .registry import register
 intent.py — Intent detection + message classification.
 Recognizes user intents and classifies messages into chat/assistant/full_capacity modes.
 """
-from .modes import _current_mode, _classify_message
+from . import modes
+from .modes import _classify_message
 import json, logging, re
 from typing import Optional
 
@@ -201,6 +202,7 @@ def list_fastpath_intents() -> str:
 
 @register(name="classify", description="Classify a message into the appropriate mode (chat/assistant/full_capacity).", tier="free", internal=True)
 def classify(text: str) -> str:
-    if _current_mode == "auto":
+    mode = modes._current_mode
+    if mode == "auto":
         return _classify_message(text)
-    return _current_mode
+    return mode

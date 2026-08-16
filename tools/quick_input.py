@@ -115,8 +115,13 @@ def open_quick_input() -> str:
 def register_hotkey(hotkey: str = "ctrl+shift+x") -> str:
     try:
         import keyboard
-        keyboard.add_hotkey(hotkey, lambda: QuickInputWindow().run())
-        keyboard.wait()
-        return f"Hotkey {hotkey} registrado"
+        if getattr(register_hotkey, "_registered", False):
+            return f"Hotkey ya registrado: {hotkey}"
+        keyboard.add_hotkey(
+            hotkey,
+            lambda: threading.Thread(target=QuickInputWindow().run, daemon=True).start(),
+        )
+        register_hotkey._registered = True
+        return f"Hotkey {hotkey} registrado. Funciona mientras el servidor siga activo."
     except ImportError:
         return "keyboard no disponible. pip install keyboard"

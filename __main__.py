@@ -6,13 +6,14 @@ if sys.platform == "win32":
     except:
         pass
 
-from .core.config import PORT
+from .core.config import PORT, config
 from .core.chat import ConsoleChat
 from .core.utils import shutdown_all
 from .memory.session import Session
 from .web.server import WebServer
 from .tools.registry import registry, discover_tools
-from .core.updater import get_current_version, update_via_git
+from .core.updater import (auto_update_zip, get_current_version, is_git_repo,
+                           set_update_url, update_via_git)
 from .core import license as lic
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -29,6 +30,19 @@ async def _run_both(session):
     chat = ConsoleChat(session)
     try:
         await chat.run()
+    finally:
+        await web.stop()
+        await shutdown_all()
+
+async def _run_web(session):
+    """UI-only mode: serves the web interface and stays alive (no console chat)."""
+    web = WebServer(session)
+    await web.start()
+    try:
+        stop = asyncio.Event()
+        await stop.wait()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        pass
     finally:
         await web.stop()
         await shutdown_all()
@@ -70,6 +84,7 @@ def main():
     parser = argparse.ArgumentParser(prog="xens", description="Xens Assistant CLI")
     parser.add_argument("--check", action="store_true", help="Run diagnostics and exit")
     parser.add_argument("--no-web", action="store_true", help="Disable the web UI server")
+    parser.add_argument("--headless", action="store_true", help="UI-only mode: web server without console chat")
     parser.add_argument("--tier", choices=["free", "pro", "premium"], help="Override tier (default free)")
     parser.add_argument("--version", action="version", version=get_current_version())
     args = parser.parse_args()
@@ -97,8 +112,14 @@ def main():
         print("  Set MISTRAL_API_KEY or add one to ~/.xens/config.json.")
         print("  You can still test tools: /tools, /test <tool> [args]\n")
 
-    # Check for updates in background (git repos only)
+    # Check for updates in background (git repos use git pull; others use ZIP feed)
     if os.environ.get("XENS_AUTO_UPDATE", "1") == "1":
+        update_url = (
+            os.environ.get("XENS_UPDATE_URL")
+            or (config.get("updater", {}) or {}).get("url", "").strip()
+            or "https://tzlbgoydgptlhspzdhfu.supabase.co/storage/v1/object/public/xens-updates"
+        )
+        set_update_url(update_url)
         threading.Thread(target=_check_updates, daemon=True).start()
 
     session = Session("default")
@@ -106,7 +127,10 @@ def main():
     logger.info(f"Xens Assistant v{get_current_version()} starting — {registry.count}/{registry.count_total} tools available (tier: {registry.get_tier()})")
 
     try:
-        if args.no_web:
+        if args.headless:
+            logger.info(f"Headless UI mode — Web UI at http://127.0.0.1:{PORT}")
+            asyncio.run(_run_web(session))
+        elif args.no_web:
             asyncio.run(_run_cli(session))
         else:
             logger.info(f"Web UI: http://127.0.0.1:{PORT}")
@@ -127,11 +151,22 @@ def on_authenticated(user_tier: str = "free"):
 def _check_updates():
     import time
     time.sleep(5)
-    result = update_via_git()
-    if result.startswith("OK"):
-        logger.info(f"Auto-update: {result}")
-    elif result != "Not a git repository" and result != "Git not installed":
-        logger.warning(f"Auto-update: {result}")
+    try:
+        if is_git_repo():
+            result = update_via_git()
+            channel = "git"
+        else:
+            result = asyncio.run(auto_update_zip())
+            channel = "zip"
+            # El loop del thread ya murió: cerrar el AsyncClient huérfano
+            from .core.utils import close_closed_loop_clients
+            close_closed_loop_clients()
+        if result.startswith(("OK:", "Updated", "Up to date")):
+            logger.info(f"Auto-update ({channel}): {result}")
+        else:
+            logger.warning(f"Auto-update ({channel}): {result}")
+    except Exception as e:
+        logger.warning(f"Auto-update: {e}")
 
 if __name__ == "__main__":
     main()

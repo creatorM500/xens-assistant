@@ -1,725 +1,340 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Xens Assistant</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>
-:root {
-  --bg: #030308;
-  --text: #e8e8f0;
-  --dim: #6b6b8a;
-  --muted: #48486a;
-  --cyan: #00d4ff;
-  --purple: #7c5cfc;
-  --accent: #00d4ff;
-  --radius: 12px;
-  --font: 'Inter', system-ui, -apple-system, sans-serif;
-  --mono: 'JetBrains Mono', monospace;
-}
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); }
-
-/* Canvas background */
-#nanobots {
-  position: fixed;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  z-index: 0;
-  pointer-events: none;
-}
-
-/* Scan line overlay */
-#scanlines {
-  position: fixed;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  z-index: 1;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 212, 255, 0.015) 2px,
-    rgba(0, 212, 255, 0.015) 4px
-  );
-}
-
-/* App UI layer */
-.app {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  width: 100%;
-}
-
-/* HUD Header */
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 24px;
-  flex-shrink: 0;
-  background: rgba(3, 3, 8, 0.6);
-  backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(0, 212, 255, 0.08);
-}
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.logo {
-  width: 30px; height: 30px;
-  border-radius: 6px;
-  background: linear-gradient(135deg, var(--cyan), var(--purple));
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: 13px; color: #000;
-  box-shadow: 0 0 30px rgba(0, 212, 255, 0.15);
-}
-.title {
-  font-size: 14px; font-weight: 600;
-  letter-spacing: 0.3px;
-}
-.title span { color: var(--dim); font-weight: 400; }
-.status {
-  font-size: 10px; color: var(--dim);
-  display: flex; align-items: center; gap: 6px;
-  cursor: pointer; padding: 4px 10px;
-  border-radius: 20px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.04);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-.dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
-  animation: pulse 2s infinite;
-}
-.dot.offline { background: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.5); animation: none; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-
-/* Chat */
-.chat {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  scroll-behavior: smooth;
-}
-.chat::-webkit-scrollbar { width: 3px; }
-.chat::-webkit-scrollbar-thumb { background: rgba(0, 212, 255, 0.15); border-radius: 999px; }
-.chat::-webkit-scrollbar-track { background: transparent; }
-
-.msg {
-  display: flex;
-  gap: 10px;
-  max-width: 820px;
-  animation: fadeIn 0.25s ease;
-}
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.msg-user { flex-direction: row-reverse; align-self: flex-end; }
-.msg-assist { align-self: flex-start; }
-
-.avatar {
-  width: 28px; height: 28px;
-  border-radius: 50%; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 600;
-  backdrop-filter: blur(8px);
-}
-.msg-assist .avatar {
-  background: rgba(124, 92, 252, 0.12);
-  border: 1px solid rgba(124, 92, 252, 0.15);
-  color: var(--purple);
-  box-shadow: 0 0 20px rgba(124, 92, 252, 0.05);
-}
-.msg-user .avatar {
-  background: rgba(0, 212, 255, 0.12);
-  border: 1px solid rgba(0, 212, 255, 0.15);
-  color: var(--cyan);
-  box-shadow: 0 0 20px rgba(0, 212, 255, 0.05);
-}
-
-.bubble {
-  padding: 10px 16px;
-  border-radius: var(--radius);
-  font-size: 13.5px;
-  line-height: 1.65;
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-.msg-assist .bubble {
-  background: rgba(10, 10, 24, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  border-top-left-radius: 4px;
-  backdrop-filter: blur(16px);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-}
-.msg-user .bubble {
-  background: rgba(0, 212, 255, 0.04);
-  border: 1px solid rgba(0, 212, 255, 0.08);
-  border-top-right-radius: 4px;
-  white-space: pre-wrap;
-  font-size: 13px;
-}
-
-.bubble p { margin: 6px 0; }
-.bubble p:first-child { margin-top: 0; }
-.bubble p:last-child { margin-bottom: 0; }
-.bubble ul, .bubble ol { padding-left: 20px; margin: 6px 0; }
-.bubble li { margin: 2px 0; }
-.bubble blockquote { border-left: 3px solid var(--purple); padding-left: 12px; margin: 8px 0; color: var(--dim); }
-.bubble table { border-collapse: collapse; margin: 8px 0; font-size: 12.5px; width: 100%; }
-.bubble th, .bubble td { border: 1px solid rgba(255,255,255,0.06); padding: 6px 10px; text-align: left; }
-.bubble th { background: rgba(0,0,0,0.2); }
-.bubble a { color: var(--cyan); text-decoration: none; }
-.bubble a:hover { text-decoration: underline; }
-.bubble code {
-  font-size: 12.5px;
-  background: rgba(0, 212, 255, 0.06);
-  padding: 2px 5px; border-radius: 4px;
-  font-family: var(--mono);
-}
-.bubble pre {
-  background: rgba(0, 0, 0, 0.5);
-  padding: 12px 14px; border-radius: 8px;
-  font-size: 12.5px; overflow-x: auto;
-  margin: 8px 0;
-  border: 1px solid rgba(0, 212, 255, 0.06);
-  position: relative;
-}
-.bubble pre code { background: none; padding: 0; border-radius: 0; font-size: inherit; }
-.bubble pre .copy-btn {
-  position: absolute; top: 6px; right: 8px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.04);
-  color: var(--dim);
-  padding: 2px 8px; border-radius: 4px;
-  font-size: 10px; cursor: pointer;
-  font-family: var(--font);
-  transition: all .15s;
-}
-.bubble pre .copy-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
-.bubble h1, .bubble h2, .bubble h3, .bubble h4 { margin: 10px 0 4px; color: var(--text); }
-.bubble h1 { font-size: 16px; font-weight: 600; }
-.bubble h2 { font-size: 14.5px; font-weight: 600; }
-.bubble h3 { font-size: 13.5px; font-weight: 600; }
-.bubble hr { border: none; border-top: 1px solid rgba(255,255,255,0.04); margin: 10px 0; }
-.bubble img { max-width: 100%; border-radius: 6px; }
-
-/* Input */
-.input-wrap {
-  display: flex;
-  gap: 8px;
-  padding: 14px 24px 18px;
-  flex-shrink: 0;
-  align-items: flex-end;
-  background: rgba(3, 3, 8, 0.6);
-  backdrop-filter: blur(20px);
-  border-top: 1px solid rgba(0, 212, 255, 0.06);
-}
-.input-wrap textarea {
-  flex: 1;
-  background: rgba(10, 10, 24, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 10px;
-  padding: 10px 14px;
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-  outline: none;
-  resize: none;
-  min-height: 40px;
-  max-height: 120px;
-  line-height: 1.4;
-  transition: border .2s;
-}
-.input-wrap textarea:focus {
-  border-color: rgba(0, 212, 255, 0.2);
-  box-shadow: 0 0 20px rgba(0, 212, 255, 0.03);
-}
-.input-wrap button {
-  background: linear-gradient(135deg, var(--cyan), var(--purple));
-  border: none;
-  color: #000;
-  padding: 10px 20px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: var(--font);
-  transition: all .2s;
-  height: 40px;
-  letter-spacing: 0.3px;
-}
-.input-wrap button:hover {
-  box-shadow: 0 0 30px rgba(0, 212, 255, 0.15);
-  transform: translateY(-1px);
-}
-.input-wrap button:disabled {
-  opacity: .35;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
-/* Typing indicator */
-.typing {
-  display: flex;
-  gap: 5px;
-  padding: 8px 0 4px 38px;
-  align-items: center;
-}
-.typing .d {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: var(--purple);
-  animation: tyB 1.4s infinite;
-  box-shadow: 0 0 6px rgba(124, 92, 252, 0.3);
-}
-.typing .d:nth-child(2) { animation-delay: .2s; }
-.typing .d:nth-child(3) { animation-delay: .4s; }
-@keyframes tyB { 0%,60%,100%{transform:translateY(0);opacity:.3} 30%{transform:translateY(-5px);opacity:.9} }
-
-/* Tool messages */
-.tool-msg { align-self: flex-start; margin-left: 38px; animation: fadeIn 0.2s ease; }
-.tool-name { font-size: 11px; color: var(--cyan); font-family: var(--mono); }
-.tool-args { font-size: 11px; color: var(--dim); }
-.tool-status { font-size: 10px; padding: 1px 8px; border-radius: 3px; background: rgba(255,255,255,0.03); font-family: var(--mono); }
-.tool-status.running { color: var(--cyan); }
-.tool-status.ok { color: #22c55e; }
-.tool-status.fail { color: #ef4444; }
-
-/* Screenshot images */
-.screenshot-wrap { padding: 4px 0; }
-.screenshot-wrap img {
-  max-width: 360px;
-  border-radius: 8px;
-  border: 1px solid rgba(0, 212, 255, 0.06);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-}
-.screenshot-meta { font-size: 9px; color: var(--muted); margin-top: 2px; letter-spacing: 0.5px; text-transform: uppercase; font-family: var(--mono); }
-
-.hidden { display: none; }
-
-.scroll-btn {
-  position: fixed; bottom: 80px; right: 24px;
-  width: 32px; height: 32px;
-  border-radius: 50%;
-  background: rgba(10,10,24,0.6);
-  border: 1px solid rgba(0,212,255,0.08);
-  color: var(--dim);
-  cursor: pointer;
-  display: none;
-  align-items: center; justify-content: center;
-  font-size: 14px;
-  transition: all .2s;
-  z-index: 5;
-  backdrop-filter: blur(8px);
-}
-.scroll-btn:hover { color: var(--text); border-color: var(--cyan); box-shadow: 0 0 20px rgba(0,212,255,0.05); }
-.scroll-btn.visible { display: flex; }
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XENS</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<canvas id="nanobots"></canvas>
-<div id="scanlines"></div>
-<div class="app">
-  <div class="header">
-    <div class="header-left">
-      <div class="logo">X</div>
-      <span class="title">Xens <span>assistant</span></span>
-      <span class="status" id="status" title="Click to reconnect">
-        <span class="dot" id="statusDot"></span>connected
-      </span>
+
+  <div class="app">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <a href="landing.html" class="brand">XENS</a>
+
+      <button class="new-chat-btn" id="newChatBtn">
+        <span class="plus">+</span> Nueva Conversación
+      </button>
+
+      <div class="sidebar-search">
+        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" class="search-input" id="searchInput" placeholder="Buscar conversaciones..." autocomplete="off">
+      </div>
+
+      <div class="recent-section">
+        <span class="recent-label">RECIENTES</span>
+        <div class="recent-list" id="recentList">
+          <div class="recent-item active" data-id="">Nueva conversación</div>
+        </div>
+      </div>
+
+      <div class="recent-section" id="trashSection" style="display:none;">
+        <span class="recent-label">PAPELERA</span>
+        <div class="recent-list" id="trashList"></div>
+      </div>
+
+      <!-- MENÚ de opciones de una conversación -->
+      <div class="recent-menu" id="recentMenu" style="display:none;">
+        <button class="recent-menu-item" data-action="share">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          Compartir (.txt)
+        </button>
+        <button class="recent-menu-item" data-action="pin">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+          <span id="pinMenuLabel">Fijar</span>
+        </button>
+        <button class="recent-menu-item" data-action="rename">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Cambiar nombre
+        </button>
+        <button class="recent-menu-item danger" data-action="trash">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          Eliminar
+        </button>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="user-card">
+          <div class="user-avatar" id="userAvatar"></div>
+          <div class="user-info">
+            <span class="user-name" id="userName">Cargando...</span>
+            <span class="user-plan-tag" id="userPlanTag">Free</span>
+          </div>
+          <button class="icon-btn" id="settingsBtn" aria-label="Configuración" title="Configuración">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+          <button class="icon-btn" id="logoutBtn" aria-label="Cerrar sesión" title="Cerrar sesión">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="plan-card">
+          <div class="plan-top">
+            <span class="plan-name" id="planName">Plan Gratuito</span>
+            <span class="plan-badge" id="planBadge">FREE</span>
+          </div>
+          <button class="upgrade-btn" id="upgradeBtn">Mejorar plan →</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+
+      <header class="topbar">
+        <span class="topbar-title" id="topbarTitle">Conversación nueva</span>
+        <span class="status" id="connStatus">
+          <span class="status-dot" id="statusDot"></span> <span id="statusText">XENS — activo</span>
+        </span>
+      </header>
+
+      <section class="chat-area" id="chatArea">
+        <div class="welcome" id="welcomeScreen">
+          <h1 class="greeting" id="welcomeGreeting">Hola</h1>
+          <p class="subtitle">¿En qué puedo ayudarte hoy?</p>
+
+          <div class="suggestions" id="suggestions">
+            <button class="suggestion-card" data-prompt="Escribime un correo profesional corto">Escribir</button>
+            <button class="suggestion-card" data-prompt="Resumime este documento en puntos clave">Aprender</button>
+            <button class="suggestion-card" data-prompt="Explicame el código de este archivo">Código</button>
+            <button class="suggestion-card" data-prompt="Ayudame a planificar una semana productiva">Vida</button>
+          </div>
+        </div>
+
+        <div class="messages" id="messages"></div>
+      </section>
+
+      <footer class="composer">
+        <div class="composer-inner">
+          <div class="attachments-row" id="attachmentsRow"></div>
+          <div class="composer-line">
+            <input type="file" id="fileInput" multiple hidden>
+            <button class="icon-btn composer-icon" id="attachBtn" aria-label="Adjuntar archivo" title="Adjuntar archivo">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.44 11.05 12.25 20.24a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95L9.41 17.41a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"/>
+              </svg>
+            </button>
+
+            <textarea class="composer-input" id="composerInput" rows="1" placeholder="Escribe un mensaje..." autocomplete="off"></textarea>
+
+            <button class="icon-btn composer-icon" id="micBtn" aria-label="Dictar mensaje" title="Dictar mensaje">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/>
+                <line x1="8" y1="23" x2="16" y2="23"/>
+              </svg>
+            </button>
+
+            <button class="send-btn" id="sendBtn" aria-label="Enviar">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <polyline points="12 5 19 12 12 19"></polyline>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <p class="disclaimer" id="disclaimer">XENS puede cometer errores. Verifica la información importante.</p>
+      </footer>
+
+    </main>
+  </div>
+
+  <!-- MODAL: Configuración -->
+  <div class="modal-overlay" id="settingsOverlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Configuración</h2>
+        <button class="icon-btn" id="closeSettingsBtn" aria-label="Cerrar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-section">
+        <span class="modal-label">Cuenta</span>
+        <div class="modal-row">
+          <span>Nombre</span>
+          <span id="settingsName">—</span>
+        </div>
+        <div class="modal-row">
+          <span>Correo</span>
+          <span id="settingsEmail">—</span>
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <span class="modal-label">Plan y uso</span>
+        <div class="modal-row">
+          <span>Plan actual</span>
+          <span class="plan-badge" id="settingsPlanBadge">FREE</span>
+        </div>
+        <div class="modal-row">
+          <span>Chats usados</span>
+          <span id="settingsUsageCount">0 / 300</span>
+        </div>
+        <div class="usage-bar">
+          <div class="usage-fill" id="settingsUsageFill" style="width: 0%;"></div>
+        </div>
+        <a href="pricing.html" class="btn-link">Ver planes y precios →</a>
+      </div>
+
+      <div class="modal-section">
+        <span class="modal-label">Licencia</span>
+        <div class="modal-row">
+          <span>Estado</span>
+          <span id="licenseStatusText">—</span>
+        </div>
+        <div class="license-row">
+          <input type="text" class="license-input" id="licenseKey" placeholder="XENS-XXXX-...">
+          <button type="button" class="license-btn" id="activateLicenseBtn">Activar</button>
+        </div>
+        <span class="license-msg" id="licenseMsg"></span>
+      </div>
+
+      <div class="modal-section">
+        <span class="modal-label">Dependencias</span>
+        <div class="modal-row">
+          <span>Estado</span>
+          <span id="settingsDepsStatus">Comprobando...</span>
+        </div>
+        <button type="button" class="license-btn deps-manage-btn" id="settingsDepsBtn">Gestionar e instalar</button>
+        <span class="license-msg" id="depsMsg"></span>
+      </div>
     </div>
   </div>
-  <div class="chat" id="chat"></div>
-  <div class="typing hidden" id="typing"><div class="d"></div><div class="d"></div><div class="d"></div></div>
-  <button class="scroll-btn" id="scrollBtn">&darr;</button>
-  <div class="input-wrap">
-    <textarea id="input" placeholder="Message Xens..." rows="1" autocomplete="off"></textarea>
-    <button id="send">Send</button>
+
+  <!-- MODAL: Herramientas usadas en la conversación -->
+  <div class="modal-overlay" id="toolsOverlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Herramientas usadas</h2>
+        <button class="icon-btn" id="closeToolsBtn" aria-label="Cerrar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="tools-log" id="toolsLog"></div>
+    </div>
   </div>
-</div>
 
-<script>
-// ============================================================
-// NANOBOT PARTICLE SYSTEM
-// ============================================================
-const canvas = document.getElementById('nanobots');
-const ctx = canvas.getContext('2d');
-let W, H;
-let particles = [];
-const PARTICLE_COUNT = 180;
-const CONNECTION_DIST = 110;
-const MOUSE_RADIUS = 140;
-let mouse = { x: -9999, y: -9999, active: false };
-let time = 0;
+  <!-- MODAL: Licencia agotada / expirada -->
+  <div class="modal-overlay" id="licenseLockOverlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="lockTitle">Licencia agotada</h2>
+        <button class="icon-btn" id="closeLicenseLockBtn" aria-label="Cerrar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
 
-class Nanobot {
-  constructor() {
-    this.x = Math.random() * W;
-    this.y = Math.random() * H;
-    this.vx = (Math.random() - 0.5) * 0.8;
-    this.vy = (Math.random() - 0.5) * 0.8;
-    this.size = 2 + Math.random() * 3;
-    this.phase = Math.random() * Math.PI * 2;
-    this.speed = 0.3 + Math.random() * 0.4;
-    this.targetX = W / 2 + (Math.random() - 0.5) * W * 0.4;
-    this.targetY = H / 2 + (Math.random() - 0.5) * H * 0.4;
-    this.hexPoints = this._genHex(this.size);
-  }
-  _genHex(s) {
-    const pts = [];
-    for (let i = 0; i < 6; i++) {
-      const a = (Math.PI / 3) * i - Math.PI / 6;
-      pts.push({ x: Math.cos(a) * s * 0.8, y: Math.sin(a) * s * 0.8 });
-    }
-    return pts;
-  }
-  update() {
-    time += 0.003;
-    // Attraction to home region
-    const dx = this.targetX - this.x;
-    const dy = this.targetY - this.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist > 10) {
-      this.vx += (dx / dist) * 0.003;
-      this.vy += (dy / dist) * 0.003;
-    }
-    // Mouse repel
-    const mdx = this.x - mouse.x;
-    const mdy = this.y - mouse.y;
-    const mdist = Math.hypot(mdx, mdy);
-    if (mdist < MOUSE_RADIUS && mdist > 1) {
-      const force = (MOUSE_RADIUS - mdist) / MOUSE_RADIUS;
-      this.vx += (mdx / mdist) * force * 0.4;
-      this.vy += (mdy / mdist) * force * 0.4;
-    }
-    // Damping
-    this.vx *= 0.96;
-    this.vy *= 0.96;
-    // Speed cap
-    const spd = Math.hypot(this.vx, this.vy);
-    if (spd > 2) { this.vx = (this.vx / spd) * 2; this.vy = (this.vy / spd) * 2; }
-    this.x += this.vx;
-    this.y += this.vy;
-    // Wrap edges with soft boundary
-    const margin = 60;
-    if (this.x < -margin) this.x = W + margin;
-    if (this.x > W + margin) this.x = -margin;
-    if (this.y < -margin) this.y = H + margin;
-    if (this.y > H + margin) this.y = -margin;
-  }
-  draw() {
-    const pulse = 0.85 + 0.15 * Math.sin(time * 2 + this.phase);
-    const cx = this.x;
-    const cy = this.y;
-    // Outer glow
-    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, this.size * 3 * pulse);
-    grad.addColorStop(0, `rgba(0, 212, 255, ${0.15 * pulse})`);
-    grad.addColorStop(1, 'rgba(0, 212, 255, 0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, this.size * 3 * pulse, 0, Math.PI * 2);
-    ctx.fill();
-    // Hex shape
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(time * 0.5 + this.phase);
-    ctx.beginPath();
-    const pts = this.hexPoints;
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < 6; i++) ctx.lineTo(pts[i].x * pulse, pts[i].y * pulse);
-    ctx.closePath();
-    ctx.strokeStyle = `rgba(0, 212, 255, ${0.25 + 0.2 * pulse})`;
-    ctx.lineWidth = 0.6;
-    ctx.stroke();
-    // Inner fill
-    ctx.fillStyle = `rgba(0, 212, 255, ${0.04 + 0.03 * pulse})`;
-    ctx.fill();
-    // Core dot
-    ctx.beginPath();
-    ctx.arc(0, 0, 1.2 * pulse, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(0, 212, 255, ${0.6 * pulse})`;
-    ctx.fill();
-    ctx.restore();
-  }
-}
+      <p class="modal-text" id="lockText">Tu prueba gratuita terminó. Activa un serial para seguir usando XENS.</p>
 
-function initParticles() {
-  particles = [];
-  for (let i = 0; i < PARTICLE_COUNT; i++) {
-    const p = new Nanobot();
-    p.targetX = W / 2 + (Math.random() - 0.5) * W * 0.6;
-    p.targetY = H / 2 + (Math.random() - 0.5) * H * 0.4;
-    // Some particles form a cluster near center
-    if (i < PARTICLE_COUNT * 0.4) {
-      p.targetX = W / 2 + (Math.random() - 0.5) * 120;
-      p.targetY = H / 2 + (Math.random() - 0.5) * 80;
-    }
-    particles.push(p);
-  }
-}
+      <div class="license-row">
+        <input type="text" class="license-input" id="lockLicenseKey" placeholder="XENS-XXXX-...">
+        <button type="button" class="license-btn" id="lockActivateBtn">Activar</button>
+      </div>
+      <span class="license-msg" id="lockMsg"></span>
+      <a href="pricing.html" class="btn-link">Ver planes y precios →</a>
+    </div>
+  </div>
 
-function resize() {
-  W = window.innerWidth;
-  H = window.innerHeight;
-  canvas.width = W;
-  canvas.height = H;
-  initParticles();
-}
+  <!-- MODAL: Bienvenida / Tutorial / Novedades / Dependencias (primer arranque) -->
+  <div class="modal-overlay wizard-overlay" id="wizardOverlay">
+    <div class="modal-card wizard-card">
 
-function drawConnections() {
-  for (let i = 0; i < particles.length; i++) {
-    const a = particles[i];
-    for (let j = i + 1; j < particles.length; j++) {
-      const b = particles[j];
-      const dx = a.x - b.x;
-      const dy = a.y - b.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist < CONNECTION_DIST) {
-        const alpha = (1 - dist / CONNECTION_DIST) * 0.12;
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.strokeStyle = `rgba(0, 212, 255, ${alpha})`;
-        ctx.lineWidth = 0.3;
-        ctx.stroke();
-      }
-    }
-  }
-}
+      <div class="wizard-progress">
+        <div class="wizard-progress-outer"><div class="wizard-progress-inner" id="wizardBar"></div></div>
+        <span class="wizard-step-label" id="wizardStepLabel">1 / 4</span>
+      </div>
 
-function animate() {
-  ctx.clearRect(0, 0, W, H);
-  drawConnections();
-  particles.forEach(p => { p.update(); p.draw(); });
-  // Center glow
-  const cg = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, 200);
-  cg.addColorStop(0, 'rgba(0, 212, 255, 0.03)');
-  cg.addColorStop(0.5, 'rgba(124, 92, 252, 0.015)');
-  cg.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = cg;
-  ctx.fillRect(0, 0, W, H);
-  requestAnimationFrame(animate);
-}
+      <!-- Paso 1: Bienvenida -->
+      <div class="wizard-step" data-step="1">
+        <div class="wizard-brand">XENS</div>
+        <h2 class="wizard-title" id="wizardTitle">¡Bienvenido a Xens!</h2>
+        <p class="wizard-text">Tu asistente que vive en tu PC: conversa, ejecuta tareas
+          en tus archivos, busca en internet, usa tu micrófono y edita tus videos.
+          Tus archivos y conversaciones quedan guardados en tu equipo.</p>
+        <div class="wizard-feature-chips" id="wizardChips">
+          <span class="wizard-chip">🧠 IA con memoria</span>
+          <span class="wizard-chip">🖥️ Controla tu PC</span>
+          <span class="wizard-chip">🎬 Edita video</span>
+          <span class="wizard-chip">🎤 Voz</span>
+          <span class="wizard-chip">📦 Se actualiza solo</span>
+        </div>
+      </div>
 
-window.addEventListener('resize', resize);
-window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.active = true; });
-window.addEventListener('mouseleave', () => { mouse.x = -9999; mouse.y = -9999; mouse.active = false; });
-window.addEventListener('touchmove', e => {
-  const t = e.touches[0];
-  mouse.x = t.clientX; mouse.y = t.clientY;
-  mouse.active = true;
-}, { passive: true });
-window.addEventListener('touchend', () => { mouse.x = -9999; mouse.y = -9999; mouse.active = false; });
+      <!-- Paso 2: Qué hace Xens -->
+      <div class="wizard-step" data-step="2" style="display:none;">
+        <h2 class="wizard-title">¿Qué puede hacer Xens?</h2>
+        <div class="wizard-cards">
+          <div class="wizard-card-item"><span class="wizard-card-icon">💬</span><div><b>Conversar</b><span>Respuestas con markdown, tablas y código. Sugerencias de inicio.</span></div></div>
+          <div class="wizard-card-item"><span class="wizard-card-icon">📁</span><div><b>Archivos y PC</b><span>Lee, escribe, busca y ejecuta comandos en tu propio sistema.</span></div></div>
+          <div class="wizard-card-item"><span class="wizard-card-icon">🌐</span><div><b>Internet</b><span>Busca y accede a páginas web cuando lo pedís.</span></div></div>
+          <div class="wizard-card-item"><span class="wizard-card-icon">🖼️</span><div><b>Pantalla</b><span>Captura lo que ves para analizarlo con visión.</span></div></div>
+          <div class="wizard-card-item"><span class="wizard-card-icon">🎬</span><div><b>Video y audio</b><span>Corta, une, convierte y extrae audio con FFmpeg.</span></div></div>
+          <div class="wizard-card-item"><span class="wizard-card-icon">🧠</span><div><b>Memoria</b><span>Recuerda conversaciones y datos tuyos entre sesiones.</span></div></div>
+        </div>
+      </div>
 
-resize();
-animate();
+      <!-- Paso 3: Novedades -->
+      <div class="wizard-step" data-step="3" style="display:none;">
+        <h2 class="wizard-title">Novedades de la última actualización</h2>
+        <p class="wizard-version" id="wizardVersion">Versión —</p>
+        <div class="wizard-markdown" id="wizardChangelog"></div>
+      </div>
 
-// ============================================================
-// CHAT INTERFACE
-// ============================================================
-const WS_URL = 'ws://127.0.0.1:18000/ws';
-let ws, chatEl = document.getElementById('chat'), inputEl = document.getElementById('input');
-let typingEl = document.getElementById('typing'), sendBtn = document.getElementById('send');
-let statusDot = document.getElementById('statusDot'), statusEl = document.getElementById('status');
-let scrollBtn = document.getElementById('scrollBtn');
-let streaming = false;
+      <!-- Paso 4: Dependencias -->
+      <div class="wizard-step" data-step="4" style="display:none;">
+        <h2 class="wizard-title">Dependencias</h2>
+        <p class="wizard-text">Para funciones avanzadas, Xens descarga componentes
+          (a tu carpeta personal, sin permisos de administrador). Elegí qué instalar:</p>
+        <div class="wizard-deps" id="wizardDeps"></div>
+        <div class="wizard-deps-actions">
+          <button type="button" class="send-btn wizard-install-btn" id="wizardInstallBtn">Instalar seleccionadas</button>
+          <button type="button" class="wizard-skip-btn" id="wizardSkipBtn">Continuar sin instalar</button>
+        </div>
+        <span class="wizard-deps-msg" id="wizardDepsMsg"></span>
+      </div>
 
-function connect() {
-  if (ws) try { ws.close(); } catch(e) {}
-  ws = new WebSocket(WS_URL);
-  ws.onopen = () => { statusDot.className = 'dot'; statusEl.childNodes[1].textContent = 'connected'; };
-  ws.onclose = () => { statusDot.className = 'dot offline'; statusEl.childNodes[1].textContent = 'disconnected'; setTimeout(connect, 2000); };
-  ws.onmessage = handleMessage;
-  ws.onerror = () => {};
-}
+      <div class="wizard-nav">
+        <button type="button" class="wizard-nav-btn" id="wizardPrevBtn">Atrás</button>
+        <button type="button" class="send-btn wizard-next-btn" id="wizardNextBtn">Continuar</button>
+      </div>
 
-function handleMessage(e) {
-  let data;
-  try { data = JSON.parse(e.data); } catch { return; }
+    </div>
+  </div>
 
-  if (data.type === 'content') {
-    let last = chatEl.lastElementChild;
-    if (last && last.classList.contains('msg-assist') && streaming) {
-      let bubble = last.querySelector('.bubble');
-      bubble.textContent += data.content;
-      renderMarkdown(bubble);
-    } else {
-      appendMsg('assist', data.content, true);
-    }
-    chatEl.scrollTop = chatEl.scrollHeight;
-  } else if (data.type === 'done') {
-    streaming = false;
-    typingEl.classList.add('hidden');
-    sendBtn.disabled = false;
-    inputEl.disabled = false;
-    inputEl.focus();
-  } else if (data.type === 'error') {
-    streaming = false;
-    typingEl.classList.add('hidden');
-    sendBtn.disabled = false;
-    inputEl.disabled = false;
-    appendMsg('assist', 'Error: ' + data.content);
-  } else if (data.type === 'cleared') {
-    chatEl.innerHTML = '';
-    streaming = false;
-    typingEl.classList.add('hidden');
-    sendBtn.disabled = false;
-    inputEl.disabled = false;
-  } else if (data.type === 'ping') {
-    ws.send(JSON.stringify({type: 'pong'}));
-  } else if (data.type === 'profile') {
-  } else if (data.type === 'tool_call') {
-    let name = data.name;
-    let args = data.args || {};
-    let argStr = Object.entries(args).filter(([k,v]) => v != null).map(([k,v]) => k+'='+v).join(', ');
-    appendToolCall(name, argStr);
-    chatEl.scrollTop = chatEl.scrollHeight;
-  } else if (data.type === 'tool_result') {
-    let name = data.name;
-    let ok = data.success;
-    let last = chatEl.lastElementChild;
-    if (last && last.classList.contains('tool-msg')) {
-      let bubble = last.querySelector('.tool-status');
-      if (bubble) {
-        bubble.textContent = ok ? 'done' : 'failed';
-        bubble.className = 'tool-status ' + (ok ? 'ok' : 'fail');
-      }
-    }
-    chatEl.scrollTop = chatEl.scrollHeight;
-  } else if (data.type === 'screenshot') {
-    appendScreenshot(data.base64, data.width, data.height);
-    chatEl.scrollTop = chatEl.scrollHeight;
-  }
-}
+  <!-- Usuario local (licencia del motor, sin Firebase) -->
+  <script src="local-auth.js"></script>
+  <script src="session.js"></script>
 
-function appendToolCall(name, args) {
-  let div = document.createElement('div');
-  div.className = 'msg tool-msg';
-  div.innerHTML = '<div style="display:flex;align-items:center;gap:10px;padding:4px 0">'
-    + '<span style="color:var(--accent);font-size:13px">&#9889;</span>'
-    + '<span class="tool-name">' + name + '</span>'
-    + '<span class="tool-args">(' + args + ')</span>'
-    + '<span class="tool-status running">running...</span>'
-    + '</div>';
-  chatEl.appendChild(div);
-}
+  <!-- Historial local (sin Supabase) -->
+  <script src="local-db.js"></script>
 
-function appendScreenshot(b64, w, h) {
-  let div = document.createElement('div');
-  div.className = 'msg tool-msg';
-  div.innerHTML = '<div class="screenshot-wrap">'
-    + '<img src="data:image/jpeg;base64,' + b64 + '">'
-    + '<div class="screenshot-meta">screen &#183; ' + w + 'x' + h + '</div>'
-    + '</div>';
-  chatEl.appendChild(div);
-}
+  <!-- Analítica -->
+  <script src="posthog-config.js"></script>
+  <script src="analytics.js"></script>
 
-function appendMsg(role, text, isStreaming) {
-  let div = document.createElement('div');
-  div.className = 'msg ' + (role === 'user' ? 'msg-user' : 'msg-assist');
-  let avatar = document.createElement('div');
-  avatar.className = 'avatar';
-  avatar.textContent = role === 'user' ? 'U' : 'X';
-  let content = document.createElement('div');
-  let bubble = document.createElement('div');
-  bubble.className = 'bubble';
-  if (!isStreaming) {
-    bubble.innerHTML = renderText(text);
-  } else {
-    bubble.textContent = text;
-  }
-  content.appendChild(bubble);
-  div.appendChild(avatar);
-  div.appendChild(content);
-  chatEl.appendChild(div);
-  chatEl.scrollTop = chatEl.scrollHeight;
-}
-
-function renderText(text) {
-  let html = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (m, lang, code) => {
-    lang = lang || 'plaintext';
-    let encoded = code;
-    return '<pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code class="language-' + lang + '">' + encoded + '</code></pre>';
-  });
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  let parts = html.split(/\n\n+/);
-  html = parts.map(p => {
-    p = p.trim();
-    if (!p) return '';
-    if (p.startsWith('<pre>') || p.startsWith('<') && !p.startsWith('<strong') && !p.startsWith('<em') && !p.startsWith('<code')) return p;
-    return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
-  }).join('');
-  return html;
-}
-
-function renderMarkdown(bubble) {
-  let text = bubble.textContent || '';
-  bubble.innerHTML = renderText(text);
-}
-
-function copyCode(btn) {
-  let code = btn.parentElement.querySelector('code');
-  let text = code.textContent || code.innerText || '';
-  navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = 'Copied';
-    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-  });
-}
-
-function send() {
-  let text = inputEl.value.trim();
-  if (!text || !ws || streaming) return;
-  appendMsg('user', text, false);
-  ws.send(JSON.stringify({type: 'message', text: text}));
-  inputEl.value = '';
-  inputEl.style.height = 'auto';
-  streaming = true;
-  typingEl.classList.remove('hidden');
-  sendBtn.disabled = true;
-  inputEl.disabled = true;
-}
-
-inputEl.addEventListener('input', () => {
-  inputEl.style.height = 'auto';
-  inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
-});
-inputEl.addEventListener('keydown', function(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-});
-sendBtn.addEventListener('click', send);
-chatEl.addEventListener('scroll', () => {
-  let threshold = 200;
-  scrollBtn.classList.toggle('visible', chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight > threshold);
-});
-scrollBtn.addEventListener('click', () => { chatEl.scrollTop = chatEl.scrollHeight; });
-statusEl.addEventListener('click', () => { connect(); });
-
-connect();
-</script>
+  <script src="app.js"></script>
 </body>
 </html>

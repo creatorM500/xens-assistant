@@ -4,6 +4,8 @@ from .registry import register
 _MAX_OUTPUT = 10000
 _TIMEOUT = 60
 
+_UTF8_ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+
 @register(name="run_command", description="Run a shell command. Use this for system commands, git, npm, etc. Use execute_code for running code snippets.", tier="free")
 def run_command(command: str, timeout: int = 30, workdir: str = "", shell: bool = True) -> str:
     if not command or not command.strip():
@@ -16,19 +18,24 @@ def run_command(command: str, timeout: int = 30, workdir: str = "", shell: bool 
 
     try:
         if sys.platform == "win32" and shell:
+            # chcp 65001: cmd.exe interpreta los bytes de entrada/salida
+            # como UTF-8 (su codepage por defecto corrompe acentos/emoji)
             proc = subprocess.run(
-                [shell_exe, "/c" if "cmd" in shell_exe.lower() else "-Command", command],
-                capture_output=True, text=True, timeout=timeout, cwd=cwd
+                [shell_exe, "/c" if "cmd" in shell_exe.lower() else "-Command",
+                 "chcp 65001 >NUL && " + command],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=timeout, cwd=cwd, env=_UTF8_ENV,
             )
         elif shell:
             proc = subprocess.run(
-                command, capture_output=True, text=True, timeout=timeout,
-                shell=True, executable=shell_exe, cwd=cwd
+                command, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=timeout, shell=True, executable=shell_exe, cwd=cwd, env=_UTF8_ENV,
             )
         else:
             parts = shlex.split(command)
             proc = subprocess.run(
-                parts, capture_output=True, text=True, timeout=timeout, cwd=cwd
+                parts, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=timeout, cwd=cwd, env=_UTF8_ENV,
             )
 
         out = {

@@ -158,7 +158,7 @@ async def browser_get_text(selector: str = "body") -> str:
     try:
         result = await _send(ws, sid, "Runtime.evaluate", {
             "expression": f"""(() => {{
-                const el = document.querySelector('{selector}');
+                const el = document.querySelector({json.dumps(selector)});
                 return el ? el.innerText.substring(0, 5000) : '';
             }})()""",
         })
@@ -179,8 +179,8 @@ async def browser_click(selector: str) -> str:
     try:
         result = await _send(ws, sid, "Runtime.evaluate", {
             "expression": f"""(() => {{
-                const el = document.querySelector('{selector}');
-                if (!el) return 'Element not found: {selector}';
+                const el = document.querySelector({json.dumps(selector)});
+                if (!el) return 'Element not found: ' + {json.dumps(selector)};
                 el.click();
                 return 'OK';
             }})()""",
@@ -200,12 +200,11 @@ async def browser_type(selector: str, text: str) -> str:
         return json.dumps({"error": "Chrome not connected", "success": False})
     ws, sid = conn
     try:
-        safe_text = text.replace("'", "\\'").replace("\n", "\\n")
         result = await _send(ws, sid, "Runtime.evaluate", {
             "expression": f"""(() => {{
-                const el = document.querySelector('{selector}');
-                if (!el) return 'Element not found: {selector}';
-                el.value = '{safe_text}';
+                const el = document.querySelector({json.dumps(selector)});
+                if (!el) return 'Element not found: ' + {json.dumps(selector)};
+                el.value = {json.dumps(text)};
                 el.dispatchEvent(new Event('input', {{ bubbles: true }}));
                 el.dispatchEvent(new Event('change', {{ bubbles: true }}));
                 return 'OK';
@@ -264,11 +263,10 @@ async def browser_search(text: str) -> str:
         return json.dumps({"error": "Chrome not connected", "success": False})
     ws, sid = conn
     try:
-        safe = text.lower().replace("'", "\\'")
         result = await _send(ws, sid, "Runtime.evaluate", {
             "expression": f"""(() => {{
                 const body = document.body.innerText || '';
-                const idx = body.toLowerCase().indexOf('{safe}');
+                const idx = body.toLowerCase().indexOf({json.dumps(text.lower())});
                 if (idx === -1) return '';
                 const start = Math.max(0, idx - 100);
                 const end = Math.min(body.length, idx + 200);

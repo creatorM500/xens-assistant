@@ -43,13 +43,29 @@ TIERS = ("FREE", "PRO", "PREMIUM")
 _TIER_TO_SYSTEM = {"FREE": "free", "PRO": "pro", "PREMIUM": "premium"}
 UNBOUND_HWID = "00000000"
 
+# Default license server: the Xens Supabase Edge Function. Used as a fallback
+# when no server is configured explicitly, so online activation works out of the
+# box. Override with env XENS_LICENSE_SERVER / XENS_SERVER_URL, config
+# "server": {"url": ...}, or the CLI command /server <url>.
+DEFAULT_SERVER_URL = "https://tzlbgoydgptlhspzdhfu.supabase.co/functions/v1/license"
+
 
 def get_server_url() -> str:
-    """License server URL (config 'server.url' or env XENS_SERVER_URL)."""
-    return (
-        os.environ.get("XENS_SERVER_URL")
-        or ((config.get("server", {}) or {}).get("url", "") or "").strip()
-    )
+    """License server URL, EXPLICIT configuration only (no default).
+
+    Priority: env XENS_LICENSE_SERVER > env XENS_SERVER_URL > config server.url.
+    Returns "" when unset, so callers can decide between online/offline flow.
+    """
+    for key in ("XENS_LICENSE_SERVER", "XENS_SERVER_URL"):
+        v = os.environ.get(key, "").strip()
+        if v:
+            return v
+    return ((config.get("server", {}) or {}).get("url", "") or "").strip()
+
+
+def get_server_url_with_default() -> str:
+    """Like get_server_url(), but falls back to the shipped default endpoint."""
+    return get_server_url() or DEFAULT_SERVER_URL
 
 
 def _sign(payload: str) -> str:
@@ -146,9 +162,9 @@ def _cfg_unlocked() -> bool:
 def _trial_limit() -> int:
     lc = config.get("license", {}) or {}
     try:
-        return max(1, int(lc.get("trial_limit", 60)))
+        return max(1, int(lc.get("trial_limit", 300)))
     except Exception:
-        return 60
+        return 300
 
 
 def activate(raw_key: str) -> dict:
@@ -194,21 +210,29 @@ def activate_online(raw_serial: str, server_url: str = "") -> dict:
     The client never stores your Mistral key — the backend calls the model for it.
     """
     import httpx
-    url = (server_url or get_server_url()).rstrip("/")
+    url = (server_url or get_server_url_with_default()).rstrip("/")
     if not url:
         return {"success": False, "error": "No license server configured. Set one with /server <url>.", "status": "no_server"}
     try:
         with httpx.Client(timeout=30) as c:
             r = c.post(f"{url}/api/activate", json={"serial": raw_serial.strip()})
     except Exception as e:
-        return {"success": False, "error": f"Cannot reach license server ({url}): {e}", "status": "unreachable"}
+        hint = ""
+        if ".supabase.co" in url:
+            hint = " (check that the Supabase project exists and the 'license' Edge Function is deployed)"
+        return {"success": False, "error": f"Cannot reach license server ({url}): {e}{hint}", "status": "unreachable"}
     if r.status_code >= 400:
         try:
             err = r.json().get("error") or r.text[:300]
         except Exception:
             err = r.text[:300]
         return {"success": False, "error": f"Server ({r.status_code}): {err}", "status": "rejected"}
-    data = r.json()
+    try:
+        data = r.json()
+        if not isinstance(data, dict):
+            return {"success": False, "error": f"Server returned an invalid response: {r.text[:300]}", "status": "rejected"}
+    except Exception:
+        return {"success": False, "error": f"Server returned non-JSON response: {r.text[:300]}", "status": "rejected"}
     token = data.get("token")
     if not token:
         return {"success": False, "error": "Server returned no token.", "status": "rejected"}

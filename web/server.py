@@ -5,8 +5,10 @@ import aiohttp
 from aiohttp import web
 
 from ..core.config import PORT
-from ..core.llm import run_tool_loop
+from ..core.llm import run_tool_loop, reset_provider
+from ..core import dependencies as deps
 from ..core import license as lic
+from ..core.tier_config import tier_config
 from ..memory.session import Session
 from ..memory.profile import profile
 from ..memory.summarizer import summarize_conversation, extract_user_info
@@ -20,19 +22,22 @@ class WebServer:
     def __init__(self, session=None):
         self._session = session or Session("web")
 
-    def _build_messages(self):
+    def _build_messages(self, session=None):
+        session = session or self._session
         profile.load()
         memory_ctx = profile.get_memory_context()
         system = build_system(memory_context=memory_ctx)
         messages = [{"role": "system", "content": system}]
-        for m in self._session.get_context(25):
+        for m in session.get_context(25):
             messages.append({"role": m["role"], "content": m["content"]})
         return messages
 
     async def _handle_ws(self, request):
         ws = web.WebSocketResponse(max_msg_size=5 * 1024 * 1024)
         await ws.prepare(request)
-        messages = self._build_messages()
+        # SesiÃ³n por conexiÃ³n: dos pestaÃ±as abiertas no se pisan el historial
+        session = Session("web")
+        messages = self._build_messages(session)
 
         heartbeat_task = asyncio.ensure_future(self._heartbeat(ws))
 
@@ -43,81 +48,110 @@ class WebServer:
                         data = json.loads(msg.data)
                     except json.JSONDecodeError:
                         continue
+                    if not isinstance(data, dict):
+                        continue
 
-                    if data.get("type") == "message":
-                        text = data.get("text", "").strip()
-                        if not text:
-                            continue
-                        gate = lic.gate_status()
-                        if not gate["allowed"]:
-                            await ws.send_json({"type": "license", "state": gate["state"]})
+                    try:
+                        if data.get("type") == "message":
+                            text = data.get("text")
+                            if not isinstance(text, str):
+                                continue
+                            text = text.strip()
+                            if not text:
+                                continue
+                            # Rehacer/editar: la respuesta (y el mensaje) previos
+                            # se reemplazan para no duplicar contexto ni historial.
+                            if data.get("replaceLast"):
+                                session.pop_last("assistant")
+                                if data.get("replaceUser"):
+                                    session.pop_last("user")
+                                messages = self._build_messages(session)
+                            gate = await asyncio.to_thread(lic.gate_status)
+                            if not gate["allowed"]:
+                                await ws.send_json({"type": "license", "state": gate["state"]})
+                                await ws.send_json({"type": "done"})
+                                continue
+                            if gate["reason"] == "trial":
+                                await asyncio.to_thread(lic.record_trial_use)
+                            await asyncio.to_thread(profile.record_interaction)
+                            session.add("user", text)
+                            messages.append({"role": "user", "content": text})
+
+                            full = ""
+                            tier = registry.get_tier()
+                            try:
+                                async for chunk in run_tool_loop(messages, tier=tier):
+                                    if isinstance(chunk, dict):
+                                        await ws.send_json(chunk)
+                                        if chunk["type"] == "content":
+                                            full += chunk["content"]
+                                    elif isinstance(chunk, str):
+                                        full += chunk
+                                        await ws.send_json({"type": "content", "content": chunk})
+                            except Exception as e:
+                                logger.error(f"Tool loop error: {e}")
+                                await ws.send_json({"type": "error", "content": "Failed to generate response"})
+                                continue
+
+                            if full:
+                                session.add("assistant", full)
+
+                            msgs_count = len(session.messages)
+                            if msgs_count > 0 and msgs_count % 8 == 0:
+                                asyncio.ensure_future(summarize_conversation(messages))
+                            asyncio.ensure_future(extract_user_info(messages))
+
                             await ws.send_json({"type": "done"})
-                            continue
-                        if gate["reason"] == "trial":
-                            lic.record_trial_use()
-                        profile.record_interaction()
-                        self._session.add("user", text)
-                        messages.append({"role": "user", "content": text})
 
-                        full = ""
-                        tier = registry.get_tier()
+                        elif data.get("type") == "clear":
+                            session.clear()
+                            messages = self._build_messages()
+                            await ws.send_json({"type": "cleared"})
+
+                        elif data.get("type") == "get_profile":
+                            profile.load()
+                            ctx = profile.get_memory_context()
+                            await ws.send_json({"type": "profile", "content": ctx})
+
+                        elif data.get("type") == "get_license":
+                            await ws.send_json({"type": "license", "state": lic.get_state()})
+
+                        elif data.get("type") == "activate":
+                            key = str(data.get("key") or "").strip()
+                            if not key:
+                                await ws.send_json({"type": "license", "state": lic.get_state(), "result": {"success": False, "error": "No key provided"}})
+                            else:
+                                server_url = lic.get_server_url()
+                                result = None
+                                note = ""
+                                if server_url:
+                                    # activate_online hace I/O bloqueante (httpx sync):
+                                    # fuera del event loop para no congelar las WS.
+                                    result = await asyncio.to_thread(lic.activate_online, key, server_url)
+                                    if not result["success"] and result.get("status") in ("no_server", "unreachable"):
+                                        note = f" (online activation failed: {result['error']})"
+                                        result = None
+                                if result is None:
+                                    result = lic.activate(key)
+                                    if note:
+                                        result["note"] = f"Fallback to offline activation{note}"
+                                if result["success"]:
+                                    registry.set_tier(result["tier"])
+                                    reset_provider()
+                                await ws.send_json({"type": "license", "state": lic.get_state(), "result": result})
+
+                        elif data.get("type") == "deactivate":
+                            lic.deactivate()
+                            registry.set_tier("free")
+                            reset_provider()
+                            await ws.send_json({"type": "license", "state": lic.get_state(), "result": {"success": True, "status": "deactivated"}})
+
+                    except Exception as e:
+                        logger.exception("WS handler error")
                         try:
-                            async for chunk in run_tool_loop(messages, tier=tier):
-                                if isinstance(chunk, dict):
-                                    await ws.send_json(chunk)
-                                    if chunk["type"] == "content":
-                                        full += chunk["content"]
-                                elif isinstance(chunk, str):
-                                    full += chunk
-                                    await ws.send_json({"type": "content", "content": chunk})
-                        except Exception as e:
-                            logger.error(f"Tool loop error: {e}")
-                            await ws.send_json({"type": "error", "content": "Failed to generate response"})
-                            continue
-
-                        if full:
-                            self._session.add("assistant", full)
-
-                        msgs_count = len(self._session.messages)
-                        if msgs_count > 0 and msgs_count % 8 == 0:
-                            asyncio.ensure_future(summarize_conversation(messages))
-                        asyncio.ensure_future(extract_user_info(messages))
-
-                        await ws.send_json({"type": "done"})
-
-                    elif data.get("type") == "clear":
-                        self._session.clear()
-                        messages = self._build_messages()
-                        await ws.send_json({"type": "cleared"})
-
-                    elif data.get("type") == "get_profile":
-                        profile.load()
-                        ctx = profile.get_memory_context()
-                        await ws.send_json({"type": "profile", "content": ctx})
-
-                    elif data.get("type") == "get_license":
-                        await ws.send_json({"type": "license", "state": lic.get_state()})
-
-                    elif data.get("type") == "activate":
-                        key = data.get("key", "").strip()
-                        if not key:
-                            await ws.send_json({"type": "license", "state": lic.get_state(), "result": {"success": False, "error": "No key provided"}})
-                        else:
-                            server_url = lic.get_server_url()
-                            result = None
-                            if server_url:
-                                result = lic.activate_online(key, server_url)
-                                if not result["success"] and result.get("status") in ("no_server", "unreachable"):
-                                    result = None
-                            if result is None:
-                                result = lic.activate(key)
-                            if result["success"]:
-                                registry.set_tier(result["tier"])
-                            await ws.send_json({"type": "license", "state": lic.get_state(), "result": result})
-
-                    elif data.get("type") == "deactivate":
-                        lic.deactivate()
-                        await ws.send_json({"type": "license", "state": lic.get_state(), "result": {"success": True, "status": "deactivated"}})
+                            await ws.send_json({"type": "error", "content": f"Error interno: {e}"})
+                        except Exception:
+                            pass
 
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     logger.error(f"WS error: {ws.exception()}")
@@ -152,10 +186,50 @@ class WebServer:
 
     async def _handle_api_profile(self, request):
         profile.load()
+        lic_state = lic.get_state()
+        tier = lic_state.get("tier") or "free"
+        # El tier FREE ES la prueba gratuita: un solo contador (trial),
+        # no dos números distintos en pantalla.
+        # Los límites anunciados DEBEN coincidir con los que aplica el
+        # ratelimiter (core/tier_config.json), o la UI promete lo que
+        # la app va a rechazar.
+        message_limit = tier_config.get_daily_limit(tier)
+        message_count = (
+            lic_state.get("trial_used", 0)
+            if tier == "free"
+            else profile.interaction_count
+        )
         return web.json_response({
             "name": profile.name or "",
+            "email": lic_state.get("name") or "",
             "interactions": profile.interaction_count,
+            "messageCount": message_count,
+            "messageLimit": message_limit,
+            "plan": tier,
+            "license": lic_state,
         })
+
+    async def _handle_api_deps(self, request):
+        return web.json_response(deps.status())
+
+    async def _handle_api_deps_install(self, request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        ids = body.get("deps")
+        if not isinstance(ids, list) or not ids:
+            ids = [d["id"] for d in deps.DEPS]
+        consent = bool(body.get("consent", True))
+        return web.json_response(deps.request_install(ids, consent=consent))
+
+    async def _handle_api_version(self, request):
+        try:
+            from ..core.updater import get_current_version
+            version = get_current_version()
+        except Exception:
+            version = "0.0.0"
+        return web.json_response({"version": version})
 
     async def start(self):
         self._app = web.Application()
@@ -163,6 +237,17 @@ class WebServer:
         self._app.router.add_get("/ws", self._handle_ws)
         self._app.router.add_get("/chat", self._handle_index)
         self._app.router.add_get("/api/profile", self._handle_api_profile)
+        self._app.router.add_get("/api/deps", self._handle_api_deps)
+        self._app.router.add_post("/api/deps/install", self._handle_api_deps_install)
+        self._app.router.add_get("/api/version", self._handle_api_version)
+        self._app.router.add_static("/", HERE / "static", show_index=False)
+
+        st = lic.get_state()
+        if st["status"] in ("licensed", "unlocked"):
+            try:
+                registry.set_tier(st.get("tier") or "free")
+            except ValueError:
+                pass
 
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()

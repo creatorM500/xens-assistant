@@ -8,16 +8,21 @@ INDEX_FILE = os.path.join(DATA_DIR, "rag_index.json")
 def _load_index():
     try:
         if os.path.exists(INDEX_FILE):
-            with open(INDEX_FILE, "r") as f:
-                return json.load(f)
+            with open(INDEX_FILE, "r", encoding="utf-8") as f:
+                index = json.load(f)
+                if not isinstance(index, dict):
+                    return {"documents": [], "vectors": []}
+                index.setdefault("documents", [])
+                index.setdefault("vectors", [])
+                return index
     except Exception:
         pass
     return {"documents": [], "vectors": []}
 
 def _save_index(index):
     os.makedirs(DATA_DIR, exist_ok=True)
-    with open(INDEX_FILE, "w") as f:
-        json.dump(index, f, indent=2)
+    with open(INDEX_FILE, "w", encoding="utf-8") as f:
+        json.dump(index, f, indent=2, ensure_ascii=False)
 
 _index = _load_index()
 _embeddings_model = None

@@ -60,8 +60,8 @@ def list_events(limit: int = 10) -> str:
     if not events:
         return json.dumps({"success": True, "events": [], "note": "No events"})
     today = datetime.now().strftime("%Y-%m-%d")
-    upcoming = [e for e in events if e["date"] >= today]
-    upcoming.sort(key=lambda e: e["date"])
+    upcoming = [e for e in events if (e.get("date") or "") >= today]
+    upcoming.sort(key=lambda e: e.get("date", ""))
     upcoming = upcoming[:limit]
     return json.dumps({"success": True, "count": len(upcoming), "events": upcoming})
 
@@ -70,9 +70,9 @@ def delete_event(title: str = "", event_id: str = "") -> str:
     events = _load_events()
     before = len(events)
     if event_id:
-        events = [e for e in events if e["id"] != event_id]
+        events = [e for e in events if e.get("id") != event_id]
     elif title:
-        events = [e for e in events if title.lower() not in e["title"].lower()]
+        events = [e for e in events if title.lower() not in (e.get("title") or "").lower()]
     else:
         return json.dumps({"error": "Specify title or event_id", "success": False})
     _save_events(events)

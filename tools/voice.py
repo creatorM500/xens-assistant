@@ -47,6 +47,8 @@ def _has_edge_tts() -> bool:
 
 @register(name="speak", description="Speak text aloud using TTS (edge-tts or pyttsx3 fallback).", tier="free")
 def speak(text: str, voice: str = "es-ES-ElviraNeural") -> str:
+    if not text or not text.strip():
+        return json.dumps({"error": "Text is required", "success": False})
     if _has_edge_tts():
         return _speak_edge(text, voice)
     tts = _get_tts()
@@ -83,8 +85,8 @@ def _async_loop(coro):
         asyncio.set_event_loop(loop)
         loop.run_until_complete(coro)
         loop.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("TTS async error: %s", e)
 
 
 async def _speak_edge_async(text: str, voice: str = "es-ES-ElviraNeural"):
@@ -96,7 +98,7 @@ async def _speak_edge_async(text: str, voice: str = "es-ES-ElviraNeural"):
         try:
             import pyaudio
             pa = pyaudio.PyAudio()
-            stream = pa.open(format=pyaudio.paInt16, channels=1, rate=16000, output=True)
+            stream = pa.open(format=pyaudio.paInt16, channels=1, rate=24000, output=True)
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     stream.write(chunk["data"])
@@ -116,12 +118,13 @@ async def _speak_edge_async(text: str, voice: str = "es-ES-ElviraNeural"):
                 pygame.mixer.quit()
             except ImportError:
                 import subprocess
-                subprocess.run(["start", str(tmp)], shell=True)
+                subprocess.run(["cmd", "/c", "start", "", str(tmp)], shell=False)
             try:
                 tmp.unlink()
             except Exception:
                 pass
-        except Exception:
+        except Exception as e:
+            logger.warning("Edge TTS playback failed, using file fallback: %s", e)
             tmp = Path(tempfile.gettempdir()) / f"xens_tts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp3"
             await communicate.save(str(tmp))
             try:
@@ -129,7 +132,7 @@ async def _speak_edge_async(text: str, voice: str = "es-ES-ElviraNeural"):
                 winsound.PlaySound(str(tmp), winsound.SND_FILENAME)
             except Exception:
                 import subprocess
-                subprocess.run(["start", str(tmp)], shell=True)
+                subprocess.run(["cmd", "/c", "start", "", str(tmp)], shell=False)
             try:
                 tmp.unlink()
             except Exception:
