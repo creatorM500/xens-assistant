@@ -3,14 +3,15 @@
    Requiere que auth.js (window.XensAuth) ya esté cargado.
    ============================================================ */
 
-(() => {
+(function () {
   "use strict";
 
-  const tabLogin = document.getElementById("tabLogin");
-  const tabRegister = document.getElementById("tabRegister");
-  const formLogin = document.getElementById("formLogin");
-  const formRegister = document.getElementById("formRegister");
-  const errorBox = document.getElementById("authError");
+  function init() {
+    const tabLogin = document.getElementById("tabLogin");
+    const tabRegister = document.getElementById("tabRegister");
+    const formLogin = document.getElementById("formLogin");
+    const formRegister = document.getElementById("formRegister");
+    const errorBox = document.getElementById("authError");
 
   /* ---- alternar entre pestañas login / registro ---- */
   function showTab(tab) {
@@ -148,4 +149,16 @@
       if (user) window.location.href = "index.html";
     });
   }
+  }
+
+  /* auth.js (modo Firebase) se carga de forma asíncrona: esperar a que
+     window.XensAuth exista antes de conectar la página. */
+  function boot() {
+    if (window.XensAuth) {
+      init();
+    } else {
+      setTimeout(boot, 100);
+    }
+  }
+  boot();
 })();

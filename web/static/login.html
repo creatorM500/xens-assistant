@@ -67,11 +67,36 @@
     </div>
   </div>
 
-  <!-- Firebase (compat SDK) -->
-  <script src="firebase-config.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="auth.js"></script>
+  <!-- Modo local primero: sin Firebase, la identidad es la máquina
+       (local-auth.js expone window.XensAuth con la misma API).
+       Si firebase-config.js existe, se carga Firebase y auth.js
+       sobrescribe XensAuth con autenticación real. -->
+  <script src="local-auth.js"></script>
+  <script src="firebase-config.js" onerror="window.__NO_FIREBASE__ = true"></script>
+  <script>
+    (function () {
+      if (window.__NO_FIREBASE__ || !window.FIREBASE_CONFIG) return;
+      var urls = [
+        "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js",
+        "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js",
+      ];
+      var i = 0;
+      function next() {
+        if (i >= urls.length) {
+          var s = document.createElement("script");
+          s.src = "auth.js";
+          document.body.appendChild(s);
+          return;
+        }
+        var s = document.createElement("script");
+        s.src = urls[i++];
+        s.onload = next;
+        s.onerror = function () { window.__NO_FIREBASE__ = true; };
+        document.body.appendChild(s);
+      }
+      next();
+    })();
+  </script>
   <script src="login.js"></script>
 </body>
 </html>
