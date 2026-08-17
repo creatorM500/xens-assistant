@@ -1,4 +1,4 @@
-import asyncio, json, logging
+import asyncio, copy, json, logging
 from pathlib import Path
 
 import aiohttp
@@ -10,6 +10,7 @@ from ..core import dependencies as deps
 from ..core import license as lic
 from ..core.credits import credits
 from ..core.firebase_auth import firebase_auth
+from ..core.tasks import task_manager
 from ..core.tier_config import tier_config
 from ..memory.session import Session
 from ..memory.profile import profile
@@ -20,9 +21,17 @@ from ..tools.registry import registry
 logger = logging.getLogger("xens.web")
 HERE = Path(__file__).parent
 
+
 class WebServer:
     def __init__(self, session=None):
         self._session = session or Session("web")
+        # Canal conversacional separado de la ejecución:
+        # cada mensaje corre su propio task (run_tool_loop) con un snapshot
+        # aislado del contexto, de modo que una tarea larga (tools, LLM) no
+        # bloquea la conversación y viceversa.
+        self._send_lock = asyncio.Lock()
+        self._session_lock = asyncio.Lock()
+        self._session_epoch = 0
 
     def _build_messages(self, session=None):
         session = session or self._session
@@ -40,11 +49,35 @@ class WebServer:
         # Modo local: sesión por conexión (dos pestañas no se pisan).
         # Con cuenta autenticada: sesión por UID (aislada entre cuentas,
         # compartida entre pestañas de la misma cuenta).
-        account = None
+        acct_state: dict = {"account": None}
         session = Session("web")
-        messages = self._build_messages(session)
 
-        heartbeat_task = asyncio.ensure_future(self._heartbeat(ws))
+        async def send(data: dict):
+            async with self._send_lock:
+                await ws.send_json(data)
+
+        async def on_task(rec: dict):
+            # Eventos de tareas: solo al dueño (uid de la cuenta) de la tarea.
+            try:
+                owner = (rec.get("meta") or {}).get("uid")
+                if owner:
+                    account = acct_state.get("account")
+                    if not account or str(account.get("uid") or "") != owner:
+                        return
+                await send({
+                    "type": "task_event",
+                    "task": {
+                        "id": rec["id"],
+                        "name": rec["name"],
+                        "status": rec["status"],
+                        "error": rec.get("error"),
+                    },
+                })
+            except Exception:
+                pass
+
+        listener_id = task_manager.subscribe(on_task)
+        heartbeat_task = asyncio.ensure_future(self._heartbeat(ws, send))
 
         try:
             async for msg in ws:
@@ -61,16 +94,15 @@ class WebServer:
                             token = data.get("token")
                             claims = await firebase_auth.verify(token) if token else None
                             if claims:
-                                account = claims
+                                acct_state["account"] = claims
                                 uid = str(claims.get("uid") or "")
                                 session = Session(f"acct:{uid}")
-                                messages = self._build_messages(session)
-                                tier = account.get("tier") or "free"
+                                tier = claims.get("tier") or "free"
                                 try:
                                     registry.set_tier(tier)
                                 except ValueError:
                                     registry.set_tier("free")
-                                await ws.send_json({
+                                await send({
                                     "type": "auth_ok",
                                     "account": {
                                         "uid": uid,
@@ -80,7 +112,7 @@ class WebServer:
                                     },
                                 })
                             else:
-                                await ws.send_json({"type": "auth_error"})
+                                await send({"type": "auth_error"})
                             continue
 
                         if data.get("type") == "message":
@@ -90,93 +122,71 @@ class WebServer:
                             text = text.strip()
                             if not text:
                                 continue
-                            # Rehacer/editar: la respuesta (y el mensaje) previos
-                            # se reemplazan para no duplicar contexto ni historial.
-                            if data.get("replaceLast"):
-                                session.pop_last("assistant")
-                                if data.get("replaceUser"):
-                                    session.pop_last("user")
-                                messages = self._build_messages(session)
+                            request_id = str(data.get("requestId") or "")
+                            account = acct_state.get("account")
+
+                            # Gate de créditos (cuenta) o licencia (local):
+                            # se valida ANTES de despachar el task.
                             if account:
                                 uid = str(account.get("uid") or "")
                                 tier = account.get("tier") or "free"
                                 allowed, remaining, limit, reset_sec = credits.check(tier=tier, uid=uid)
                                 if not allowed:
-                                    await ws.send_json({
+                                    await send({
                                         "type": "error",
+                                        "requestId": request_id or None,
                                         "content": (
                                             f"Alcanzaste el límite de Xens Credits de tu plan "
                                             f"({limit} al mes). Se renuevan el 1º de cada mes. "
                                             f"Mejora tu plan para obtener más."
                                         ),
                                     })
-                                    await ws.send_json({"type": "done"})
+                                    await send({"type": "done", "requestId": request_id or None})
                                     continue
                             else:
                                 gate = await asyncio.to_thread(lic.gate_status)
                                 if not gate["allowed"]:
-                                    await ws.send_json({"type": "license", "state": gate["state"]})
-                                    await ws.send_json({"type": "done"})
+                                    await send({"type": "license", "state": gate["state"]})
+                                    await send({"type": "done", "requestId": request_id or None})
                                     continue
                                 if gate["reason"] == "trial":
                                     await asyncio.to_thread(lic.record_trial_use)
                                 await asyncio.to_thread(profile.record_interaction)
-                            session.add("user", text)
-                            messages.append({"role": "user", "content": text})
 
-                            full = ""
-                            tier = account.get("tier") if account else registry.get_tier()
-                            uid = str(account.get("uid") or "") if account else None
-                            try:
-                                async for chunk in run_tool_loop(messages, tier=tier, uid=uid):
-                                    if isinstance(chunk, dict):
-                                        await ws.send_json(chunk)
-                                        if chunk["type"] == "content":
-                                            full += chunk["content"]
-                                    elif isinstance(chunk, str):
-                                        full += chunk
-                                        await ws.send_json({"type": "content", "content": chunk})
-                            except Exception as e:
-                                logger.error(f"Tool loop error: {e}")
-                                await ws.send_json({"type": "error", "content": "Failed to generate response"})
-                                continue
+                            # Rehacer/editar: se aplica sobre la sesión bajo lock
+                            # antes de tomar el snapshot.
+                            async with self._session_lock:
+                                if data.get("replaceLast"):
+                                    session.pop_last("assistant")
+                                    if data.get("replaceUser"):
+                                        session.pop_last("user")
+                                session.add("user", text)
 
-                            if full:
-                                session.add("assistant", full)
-
-                            if account:
-                                used, credit_limit = credits.get_usage(tier=tier, uid=uid)
-                                await ws.send_json({
-                                    "type": "credits",
-                                    "credits": max(0, credit_limit - used),
-                                    "creditsUsed": used,
-                                    "creditsLimit": credit_limit,
-                                })
-
-                            msgs_count = len(session.messages)
-                            if msgs_count > 0 and msgs_count % 8 == 0:
-                                asyncio.ensure_future(summarize_conversation(messages))
-                            asyncio.ensure_future(extract_user_info(messages))
-
-                            await ws.send_json({"type": "done"})
+                            # La respuesta corre en su propio task: la
+                            # conversación no se bloquea con la ejecución.
+                            asyncio.ensure_future(self._run_response(
+                                ws, send, session, acct_state, text, request_id,
+                            ))
+                            continue
 
                         elif data.get("type") == "clear":
-                            session.clear()
-                            messages = self._build_messages(session)
-                            await ws.send_json({"type": "cleared"})
+                            async with self._session_lock:
+                                self._session_epoch += 1
+                                session.clear()
+                            await send({"type": "cleared"})
 
                         elif data.get("type") == "get_profile":
                             profile.load()
                             ctx = profile.get_memory_context()
-                            await ws.send_json({"type": "profile", "content": ctx})
+                            await send({"type": "profile", "content": ctx})
 
                         elif data.get("type") == "get_license":
-                            await ws.send_json({"type": "license", "state": lic.get_state()})
+                            await send({"type": "license", "state": lic.get_state()})
 
                         elif data.get("type") == "activate":
                             key = str(data.get("key") or "").strip()
                             if not key:
-                                await ws.send_json({"type": "license", "state": lic.get_state(), "result": {"success": False, "error": "No key provided"}})
+                                await send({"type": "license", "state": lic.get_state(), "result": {"success": False, "error": "No key provided"}})
                             else:
                                 server_url = lic.get_server_url()
                                 result = None
@@ -195,18 +205,18 @@ class WebServer:
                                 if result["success"]:
                                     registry.set_tier(result["tier"])
                                     reset_provider()
-                                await ws.send_json({"type": "license", "state": lic.get_state(), "result": result})
+                                await send({"type": "license", "state": lic.get_state(), "result": result})
 
                         elif data.get("type") == "deactivate":
                             lic.deactivate()
                             registry.set_tier("free")
                             reset_provider()
-                            await ws.send_json({"type": "license", "state": lic.get_state(), "result": {"success": True, "status": "deactivated"}})
+                            await send({"type": "license", "state": lic.get_state(), "result": {"success": True, "status": "deactivated"}})
 
                     except Exception as e:
                         logger.exception("WS handler error")
                         try:
-                            await ws.send_json({"type": "error", "content": f"Error interno: {e}"})
+                            await send({"type": "error", "content": f"Error interno: {e}"})
                         except Exception:
                             pass
 
@@ -214,16 +224,68 @@ class WebServer:
                     logger.error(f"WS error: {ws.exception()}")
 
         finally:
+            task_manager.unsubscribe(listener_id)
             heartbeat_task.cancel()
 
         return ws
 
-    async def _heartbeat(self, ws):
+    async def _run_response(self, ws, send, session, acct_state, text, request_id):
+        """Task de respuesta para UN mensaje: snapshot aislado del contexto,
+        ejecución concurrente, y escritura ordenada en la sesión."""
+        try:
+            account = acct_state.get("account")
+            tier = account.get("tier") if account else registry.get_tier()
+            uid = str(account.get("uid") or "") if account else None
+
+            async with self._session_lock:
+                epoch = self._session_epoch
+                messages = copy.deepcopy(self._build_messages(session))
+
+            full = ""
+            async for chunk in run_tool_loop(messages, tier=tier, uid=uid):
+                if isinstance(chunk, dict):
+                    chunk["requestId"] = request_id or None
+                    await send(chunk)
+                    if chunk["type"] == "content":
+                        full += chunk.get("content") or ""
+                elif isinstance(chunk, str):
+                    full += chunk
+                    await send({"type": "content", "requestId": request_id or None, "content": chunk})
+
+            if full and self._session_epoch == epoch:
+                async with self._session_lock:
+                    session.add("assistant", full)
+
+            if account:
+                used, credit_limit = credits.get_usage(tier=tier, uid=uid)
+                await send({
+                    "type": "credits",
+                    "requestId": request_id or None,
+                    "credits": max(0, credit_limit - used),
+                    "creditsUsed": used,
+                    "creditsLimit": credit_limit,
+                })
+
+            msgs_count = len(session.messages)
+            if msgs_count > 0 and msgs_count % 8 == 0:
+                asyncio.ensure_future(summarize_conversation(messages))
+            asyncio.ensure_future(extract_user_info(messages))
+
+            await send({"type": "done", "requestId": request_id or None})
+        except Exception as e:
+            logger.exception("Response task error")
+            try:
+                await send({"type": "error", "requestId": request_id or None,
+                            "content": "Failed to generate response"})
+            except Exception:
+                pass
+
+    async def _heartbeat(self, ws, send):
         try:
             while True:
                 await asyncio.sleep(30)
                 try:
-                    await ws.send_json({"type": "ping"})
+                    await send({"type": "ping"})
                 except:
                     break
         except asyncio.CancelledError:

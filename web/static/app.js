@@ -192,6 +192,11 @@
 
     // burbuja de IA que se está llenando actualmente con chunks
     currentAssistantBubble: null,
+
+    // respuestas concurrentes (canal conversacional separado de la
+    // ejecución): burbujas por requestId para no pisarse entre sí
+    activeBubbles: {},          // requestId -> {bubble, text}
+    activeReqIds: new Set(),
     currentAssistantText: "",
 
     // último texto enviado por el usuario (para "rehacer respuesta")
@@ -488,6 +493,8 @@
     el.topbarTitle.textContent = "Conversación nueva";
     state.currentAssistantBubble = null;
     state.currentAssistantText = "";
+    state.activeBubbles = {};
+    state.activeReqIds = new Set();
     state.toolLog = [];
   }
 
@@ -617,18 +624,21 @@
     }
 
     state.lastUserText = newText;
-    startAssistantBubble();
+    const requestId = Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    state.activeReqIds.add(requestId);
+    startAssistantBubble(requestId);
     const ok = sendToServer({
       type: "message",
       text: newText,
+      requestId,
       uid: state.user ? state.user.uid : null,
       attachments: [],
       replaceLast: isLastUser,
       replaceUser: isLastUser,
     });
     if (!ok) {
-      finishAssistantBubble();
-      if (state.currentAssistantBubble) state.currentAssistantBubble.remove();
+      finishAssistantBubble(requestId);
+      state.activeReqIds.delete(requestId);
     }
     if (window.XensAnalytics) window.XensAnalytics.track("message_edited");
   }
@@ -641,7 +651,26 @@
     scrollToBottom();
   }
 
-  function startAssistantBubble() {
+  function bubbleEntry(reqId) {
+    if (!reqId) return null; // ruta clásica de burbuja única
+    let entry = state.activeBubbles[reqId];
+    if (!entry) {
+      if (!state.activeReqIds.has(reqId)) return null; // respuesta de una conversación ya cerrada
+      const bubble = document.createElement("div");
+      bubble.className = "msg assistant typing";
+      el.messages.appendChild(bubble);
+      entry = { bubble, text: "" };
+      state.activeBubbles[reqId] = entry;
+      scrollToBottom();
+    }
+    return entry;
+  }
+
+  function startAssistantBubble(reqId) {
+    if (reqId) {
+      bubbleEntry(reqId);
+      return;
+    }
     state.activeGeneration = state.generation;
     const bubble = document.createElement("div");
     bubble.className = "msg assistant typing";
@@ -652,7 +681,21 @@
     return bubble;
   }
 
-  function appendAssistantChunk(chunk) {
+  function appendAssistantChunk(chunk, reqId) {
+    if (reqId) {
+      const entry = bubbleEntry(reqId);
+      if (!entry) return;
+      entry.text += chunk;
+      let content = entry.bubble.querySelector(".msg-content");
+      if (!content) {
+        content = document.createElement("div");
+        content.className = "msg-content";
+        entry.bubble.appendChild(content);
+      }
+      content.innerHTML = renderMarkdown(entry.text);
+      scrollToBottom();
+      return;
+    }
     if (state.activeGeneration !== state.generation) return; // respuesta vieja tras reset
     if (!state.currentAssistantBubble) startAssistantBubble();
     state.currentAssistantText += chunk;
@@ -666,15 +709,19 @@
     scrollToBottom();
   }
 
-  function showToolCall(name, args) {
-    if (state.activeGeneration !== state.generation) return;
-    if (!state.currentAssistantBubble) startAssistantBubble();
-    const bubble = state.currentAssistantBubble;
-    let chips = bubble.querySelector(".tool-chips");
+  function showToolCall(name, args, reqId) {
+    const target = reqId ? (bubbleEntry(reqId) || {}).bubble : null;
+    if (reqId && !target) return;
+    if (state.activeGeneration !== state.generation && !reqId) return;
+    if (!target) {
+      if (!state.currentAssistantBubble) startAssistantBubble();
+      target = state.currentAssistantBubble;
+    }
+    let chips = target.querySelector(".tool-chips");
     if (!chips) {
       chips = document.createElement("div");
       chips.className = "tool-chips";
-      bubble.appendChild(chips);
+      target.appendChild(chips);
     }
     const chip = document.createElement("span");
     chip.className = "tool-chip running";
@@ -710,11 +757,10 @@
     if (el.toolsOverlay && el.toolsOverlay.classList.contains("open")) renderToolsLog();
   }
 
-  function finishToolCall(name, success) {
-    if (state.activeGeneration !== state.generation) return;
-    const bubble = state.currentAssistantBubble;
-    if (!bubble) return;
-    const chips = bubble.querySelector(".tool-chips");
+  function finishToolCall(name, success, reqId) {
+    const target = reqId ? (bubbleEntry(reqId) || {}).bubble : state.currentAssistantBubble;
+    if (!target) return;
+    const chips = target.querySelector(".tool-chips");
     if (!chips) return;
     const matches = Array.from(chips.querySelectorAll(`.tool-chip[data-tool="${CSS.escape(String(name))}"]`));
     const chip = matches.length ? matches[matches.length - 1] : chips.lastElementChild;
@@ -736,7 +782,26 @@
     if (el.toolsOverlay && el.toolsOverlay.classList.contains("open")) renderToolsLog();
   }
 
-  function finishAssistantBubble() {
+  function finishAssistantBubble(reqId) {
+    if (reqId) {
+      const entry = state.activeBubbles[reqId];
+      if (!entry) return;
+      const bubble = entry.bubble;
+      bubble.classList.remove("typing");
+      const text = entry.text;
+      const hasToolCards = bubble.querySelector(".tool-call");
+      if (!text && !hasToolCards) {
+        bubble.remove();
+      } else if (text) {
+        attachMessageActions(bubble, { role: "assistant", withRegenerate: true });
+      }
+      if (window.XensDB && state.currentConversationId && text) {
+        window.XensDB.saveMessage(state.currentConversationId, "assistant", text);
+      }
+      delete state.activeBubbles[reqId];
+      state.activeReqIds.delete(reqId);
+      return;
+    }
     if (state.activeGeneration !== state.generation) {
       // respuesta vieja que llegó tarde: descartar sin persistir
       state.currentAssistantBubble = null;
@@ -989,6 +1054,8 @@
     state.generation += 1;
     state.currentAssistantBubble = null;
     state.currentAssistantText = "";
+    state.activeBubbles = {};
+    state.activeReqIds = new Set();
     state.currentConversationId = conv.id;
     showChatView();
     el.messages.innerHTML = "";
@@ -1359,6 +1426,18 @@
     attemptReconnect();
   }
 
+  function handleTaskEvent(task) {
+    if (!task) return;
+    const name = String(task.name || "tarea");
+    if (task.status === "done") {
+      addSystemNote(`Tarea «${name}» completada. Pregúntame "¿cómo va la tarea?" para ver el resultado.`);
+    } else if (task.status === "error") {
+      addSystemNote(`La tarea «${name}» falló: ${task.error || "error desconocido"}`);
+    } else if (task.status === "cancelled") {
+      addSystemNote(`La tarea «${name}» fue cancelada.`);
+    }
+  }
+
   async function sendAuthToken() {
     let token = null;
     try {
@@ -1374,26 +1453,31 @@
   }
 
   function handleServerMessage(data) {
+    const reqId = data.requestId || null;
     switch (data.type) {
       case "content":
-        appendAssistantChunk(data.content ?? "");
+        appendAssistantChunk(data.content ?? "", reqId);
         break;
 
       case "done":
-        finishAssistantBubble();
+        finishAssistantBubble(reqId);
         break;
 
       case "tool_call":
-        showToolCall(data.name || "herramienta", data.args);
+        showToolCall(data.name || "herramienta", data.args, reqId);
         break;
 
       case "tool_result":
-        finishToolCall(data.name || "", !!data.success);
+        finishToolCall(data.name || "", !!data.success, reqId);
         break;
 
       case "error":
-        finishAssistantBubble();
+        finishAssistantBubble(reqId);
         addSystemNote(data.message || data.content || "Ocurrió un error procesando tu mensaje.");
+        break;
+
+      case "task_event":
+        handleTaskEvent(data.task);
         break;
 
       case "auth_ok":
@@ -1481,7 +1565,9 @@
     state.lastUserText = trimmed || "(archivo adjunto)";
     showChatView();
     addUserBubble(trimmed || "(archivo adjunto)");
-    startAssistantBubble();
+    const requestId = Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    state.activeReqIds.add(requestId);
+    startAssistantBubble(requestId);
 
     // Persistencia ANTES de enviar: la conversación y el mensaje del
     // usuario deben existir antes de que el motor pueda responder,
@@ -1504,16 +1590,15 @@
     const ok = sendToServer({
       type: "message",
       text: trimmed,
+      requestId,
       uid: state.user ? state.user.uid : null,
       attachments,
     });
 
     if (!ok) {
       // revertimos la burbuja "escribiendo" si no hay conexión
-      finishAssistantBubble();
-      if (state.currentAssistantBubble) {
-        state.currentAssistantBubble.remove();
-      }
+      finishAssistantBubble(requestId);
+      state.activeReqIds.delete(requestId);
     } else {
       if (!state.account) {
         state.messageCount += 1;

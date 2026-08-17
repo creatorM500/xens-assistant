@@ -1,4 +1,4 @@
-import json, logging
+import copy, json, logging
 from contextvars import ContextVar
 
 from ..core.config import API_KEY, MODEL, MAX_CONTEXT_TOKENS
@@ -53,6 +53,11 @@ _provider = None
 # de tools que lanzan trabajo cobrable (p.ej. spawn_agent). Los sub-agentes
 # heredan el valor por contextvar al crearse su task.
 charge_ctx: ContextVar = ContextVar("xens_charge_ctx", default=None)
+
+# Snapshot del contexto conversacional actual (deepcopy de `messages`):
+# lo usan las tools de tareas en segundo plano (start_task) para continuar
+# la conversación sin bloquear el chat ni compartir listas mutables.
+session_ctx: ContextVar = ContextVar("xens_session_ctx", default=None)
 
 def _to_llm_messages(raw_messages):
     result = []
@@ -158,6 +163,7 @@ async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
             messages.append({"role": "system", "content": f"[SIN CREDITOS: {msg}]"})
             return
         charge_ctx.set({"uid": uid, "tier": tier})
+        session_ctx.set(copy.deepcopy(messages))
 
     prefix = f"[{agent_name}] " if agent_name else ""
     _refresh_working_memory(messages)
