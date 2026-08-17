@@ -34,13 +34,13 @@ class TieredProvider(BaseLLM):
         logger.warning("Provider '%s' unhealthy, cooling down %.0fs", name, ttl)
 
     async def chat(self, messages: list[Message], tools: list = None,
-                   tier: str = "free", background: bool = False, **kwargs) -> LLMResult:
-        models = tier_config.get_models(tier)
-        if not models:
+                   tier: str = "free", background: bool = False, models: list = None, **kwargs) -> LLMResult:
+        model_entries = models or tier_config.get_models(tier)
+        if not model_entries:
             raise RuntimeError(f"No models configured for tier '{tier}'")
 
         last_error = None
-        for entry in models:
+        for entry in model_entries:
             provider_name = entry.get("provider")
             model_name = entry.get("model")
             provider = self._providers.get(provider_name)
@@ -59,14 +59,14 @@ class TieredProvider(BaseLLM):
         raise last_error or RuntimeError(f"No providers available for tier '{tier}'")
 
     async def chat_stream(self, messages: list[Message], tools: list = None,
-                          tier: str = "free", background: bool = False, **kwargs) -> AsyncIterator[str]:
-        models = tier_config.get_models(tier)
-        if not models:
+                          tier: str = "free", background: bool = False, models: list = None, **kwargs) -> AsyncIterator[str]:
+        model_entries = models or tier_config.get_models(tier)
+        if not model_entries:
             yield f"\n[No models configured for tier '{tier}']"
             return
 
         last_error = None
-        for entry in models:
+        for entry in model_entries:
             provider_name = entry.get("provider")
             model_name = entry.get("model")
             provider = self._providers.get(provider_name)

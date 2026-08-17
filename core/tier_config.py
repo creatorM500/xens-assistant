@@ -10,24 +10,29 @@ TIER_FILE = CONFIG_DIR / "tier_config.json"
 DEFAULT_CONFIG = {
     "free": {
         "models": [
-            {"provider": "mistral", "model": "mistral-small-2506"}
+            {"provider": "mistral", "model": "mistral-medium-latest"},
+            {"provider": "openrouter", "model": "deepseek/deepseek-chat"},
         ],
-        "daily_limit": 300,
+        "credits": 10000,
     },
     "pro": {
         "models": [
-            {"provider": "mistral", "model": "mistral-small-2506"},
+            {"provider": "mistral", "model": "mistral-medium-latest"},
+            {"provider": "openrouter", "model": "deepseek/deepseek-chat"},
             {"provider": "openai", "model": "gpt-4o"},
+            {"provider": "openrouter", "model": "deepseek/deepseek-r1"},
         ],
-        "daily_limit": 3000,
+        "credits": 50000,
     },
     "premium": {
         "models": [
             {"provider": "openrouter", "model": "anthropic/claude-sonnet-4"},
             {"provider": "openrouter", "model": "google/gemini-2.0-flash-001"},
             {"provider": "openrouter", "model": "deepseek/deepseek-r1"},
+            {"provider": "mistral", "model": "mistral-medium-latest"},
+            {"provider": "openrouter", "model": "deepseek/deepseek-chat"},
         ],
-        "daily_limit": 10000,
+        "credits": 250000,
     },
 }
 
@@ -86,6 +91,9 @@ class TierConfig:
 
     def get_daily_limit(self, tier: str) -> int:
         return self.get_tier(tier).get("daily_limit", 999999)
+
+    def get_credits(self, tier: str) -> int:
+        return int(self.get_tier(tier).get("credits", 10000))
 
     @property
     def tiers(self) -> list[str]:

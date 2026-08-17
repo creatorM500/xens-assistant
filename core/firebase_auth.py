@@ -26,8 +26,11 @@ _CERTS_TTL = 3600  # 1 hora de cache de claves públicas
 
 
 class FirebaseAuth:
-    def __init__(self, project_id: str):
+    def __init__(self, project_id: str, verify_key: str = ""):
         self._project_id = (project_id or "").strip()
+        # Clave pública PEM fija (opcional): permite pinning de llave para
+        # despliegues enterprise/self-hosted y pruebas sin proyecto Firebase.
+        self._verify_key = (verify_key or "").strip()
         self._certs: dict = {}
         self._certs_fetched = 0.0
         self._lock = asyncio.Lock()
@@ -37,6 +40,8 @@ class FirebaseAuth:
         return bool(self._project_id)
 
     async def _get_certs(self) -> dict:
+        if self._verify_key:
+            return {"local": self._verify_key}
         if self._certs and time.time() - self._certs_fetched < _CERTS_TTL:
             return self._certs
         async with self._lock:
@@ -103,12 +108,16 @@ def build_auth() -> "FirebaseAuth":
     """Crea la instancia según la configuración (core/config.py)."""
     try:
         from .config import config
-        project_id = (config.get("firebase", {}) or {}).get("project_id", "")
+        firebase_cfg = config.get("firebase", {}) or {}
+        project_id = firebase_cfg.get("project_id", "")
+        verify_key = firebase_cfg.get("verify_key", "")
     except Exception:
         project_id = ""
-    auth = FirebaseAuth(project_id)
+        verify_key = ""
+    auth = FirebaseAuth(project_id, verify_key=verify_key)
     if auth.enabled:
-        logger.info("Firebase Auth activo (project: %s)", project_id)
+        mode = "key fija" if verify_key else "claves públicas de Google"
+        logger.info("Firebase Auth activo (project: %s, %s)", project_id, mode)
     return auth
 
 

@@ -36,14 +36,14 @@
     WS_URL: "ws://127.0.0.1:18000/ws",
     PROFILE_URL: "http://127.0.0.1:18000/api/profile",
 
-    // Chats por plan (LÍMITE DIARIO). El backend (/api/profile) es la fuente
-    // autoritativa; esto solo es el fallback si el perfil no llega.
-    // La prueba gratuita (trial) usa además un contador total único (300),
-    // informado por el estado de licencia, no por este mapa.
+    // Xens Credits por plan (MENSUALES; se renuevan el 1º). El backend
+    // (/api/profile) es la fuente autoritativa; esto solo es el fallback
+    // si el perfil no llega. La prueba gratuita local (trial) usa además
+    // un contador total único (300), informado por el estado de licencia.
     PLAN_LIMITS: {
-      free: 300,
-      pro: 3000,
-      premium: 10000,
+      free: 10000,
+      pro: 50000,
+      premium: 250000,
     },
     PLAN_META: {
       free: { label: "Plan Gratuito", badge: "FREE" },
@@ -163,6 +163,11 @@
 
     // límite de mensajes actual (viene de /api/profile; fallback en CONFIG)
     messageLimit: null,
+
+    // Xens Credits (modo cuenta; null = modo local con contador de trial)
+    credits: null,
+    creditsLimit: null,
+    creditsResetSec: null,
 
     // todas las conversaciones cargadas (para filtrar con el buscador)
     allConversations: [],
@@ -1034,16 +1039,26 @@
   }
 
   /* ----------------------------------------------------------
-     5. LÍMITE POR PLAN (chats/día) — visible solo en Configuración
+     5. LÍMITE POR PLAN — créditos (cuenta) o chats de trial (local)
+        visible solo en Configuración
   ---------------------------------------------------------- */
   function currentLimit() {
+    if (typeof state.creditsLimit === "number" && state.creditsLimit > 0) return state.creditsLimit;
     const l = state.messageLimit;
     if (typeof l === "number" && l > 0) return l;
     return CONFIG.PLAN_LIMITS[state.plan] || CONFIG.PLAN_LIMITS.free;
   }
 
+  function creditsMode() {
+    return typeof state.credits === "number" && typeof state.creditsLimit === "number";
+  }
+
+  function formatCredits(n) {
+    if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+    return String(n);
+  }
+
   function updateUsageUI() {
-    const limit = currentLimit();
     const meta = CONFIG.PLAN_META[state.plan] || CONFIG.PLAN_META.free;
 
     // Sidebar: solo el nombre del plan, sin números de uso a la vista
@@ -1053,15 +1068,27 @@
 
     // Modal de Configuración: aquí sí se ve el detalle de uso
     if (el.settingsPlanBadge) el.settingsPlanBadge.textContent = meta.badge;
+    if (el.settingsUsageLabel) {
+      el.settingsUsageLabel.textContent = creditsMode() ? "Xens Credits (mensual)" : "Chats usados";
+    }
     if (el.settingsUsageCount) {
-      el.settingsUsageCount.textContent = `${state.messageCount} / ${limit}`;
+      if (creditsMode()) {
+        const used = state.creditsLimit - state.credits;
+        el.settingsUsageCount.textContent =
+          `${formatCredits(state.credits)} / ${formatCredits(state.creditsLimit)} Xens Credits`;
+      } else {
+        el.settingsUsageCount.textContent = `${state.messageCount} / ${currentLimit()}`;
+      }
     }
     if (el.settingsUsageFill) {
-      el.settingsUsageFill.style.width = `${Math.min(100, (state.messageCount / limit) * 100)}%`;
+      const used = creditsMode() ? state.creditsLimit - state.credits : state.messageCount;
+      const limit = currentLimit();
+      el.settingsUsageFill.style.width = `${Math.min(100, (used / limit) * 100)}%`;
     }
   }
 
   function limitReached() {
+    if (creditsMode()) return state.credits <= 0;
     return state.messageCount >= currentLimit();
   }
 
@@ -1069,9 +1096,15 @@
     el.composerInput.disabled = true;
     el.sendBtn.disabled = true;
     el.composerInner.classList.add("locked");
-    el.composerInput.placeholder = "Límite de chats alcanzado";
-    el.disclaimer.textContent =
-      "Alcanzaste el límite de chats de tu plan. Mejora tu plan para seguir chateando.";
+    if (creditsMode()) {
+      el.composerInput.placeholder = "Sin créditos";
+      el.disclaimer.textContent =
+        "Agotaste tus Xens Credits del mes. Se renuevan el 1º. Mejora tu plan para obtener más.";
+    } else {
+      el.composerInput.placeholder = "Límite de chats alcanzado";
+      el.disclaimer.textContent =
+        "Alcanzaste el límite de chats de tu plan. Mejora tu plan para seguir chateando.";
+    }
   }
 
   function unlockComposer() {
@@ -1380,6 +1413,15 @@
         addSystemNote("No se pudo autenticar tu cuenta con el motor local.");
         break;
 
+      case "credits":
+        if (typeof data.credits === "number" && typeof data.creditsLimit === "number") {
+          state.credits = data.credits;
+          state.creditsLimit = data.creditsLimit;
+          updateUsageUI();
+          if (limitReached()) lockComposer();
+        }
+        break;
+
       case "ping":
         if (state.socket && state.socket.readyState === WebSocket.OPEN) {
           state.socket.send(JSON.stringify({ type: "pong" }));
@@ -1473,9 +1515,11 @@
         state.currentAssistantBubble.remove();
       }
     } else {
-      state.messageCount += 1;
-      updateUsageUI();
-      if (limitReached()) lockComposer();
+      if (!state.account) {
+        state.messageCount += 1;
+        updateUsageUI();
+        if (limitReached()) lockComposer();
+      }
     }
 
     if (window.XensAnalytics) {
@@ -1623,6 +1667,13 @@
       }
       if (typeof profile.messageLimit === "number") {
         state.messageLimit = profile.messageLimit;
+        updateUsageUI();
+        if (limitReached()) lockComposer();
+      }
+      if (typeof profile.credits === "number" && typeof profile.creditsLimit === "number") {
+        state.credits = profile.credits;
+        state.creditsLimit = profile.creditsLimit;
+        state.creditsResetSec = typeof profile.creditsResetAt === "number" ? profile.creditsResetAt : null;
         updateUsageUI();
         if (limitReached()) lockComposer();
       }

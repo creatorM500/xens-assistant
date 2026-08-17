@@ -1,7 +1,9 @@
 import json, logging
+from contextvars import ContextVar
 
 from ..core.config import API_KEY, MODEL, MAX_CONTEXT_TOKENS
-from ..core.ratelimit import ratelimiter
+from ..core.credits import credits
+from ..core.model_router import pick as pick_models
 from ..core.tier_config import tier_config
 from ..tools.registry import registry
 from ..tools.working_memory import working_memory
@@ -45,7 +47,12 @@ def get_provider():
 def reset_provider():
     """Force re-creation of the LLM provider (after license changes)."""
     global _provider
-    _provider = None
+_provider = None
+
+# Contexto de cobro por tarea: lo setea run_tool_loop y lo leen los handlers
+# de tools que lanzan trabajo cobrable (p.ej. spawn_agent). Los sub-agentes
+# heredan el valor por contextvar al crearse su task.
+charge_ctx: ContextVar = ContextVar("xens_charge_ctx", default=None)
 
 def _to_llm_messages(raw_messages):
     result = []
@@ -60,9 +67,12 @@ def _to_llm_messages(raw_messages):
         result.append(msg)
     return result
 
-def _to_tool_schemas():
+def _to_tool_schemas(tool_names: set = None):
     available = set(registry.tool_names)
-    include = CORE_TOOLS | _discovered_tools
+    if tool_names is not None:
+        include = set(tool_names) & available
+    else:
+        include = CORE_TOOLS | _discovered_tools
     names = [n for n in include if n in available]
     return registry.get_schemas_by_names(names)
 
@@ -120,35 +130,54 @@ def _refresh_working_memory(messages):
             return
     messages.insert(1, {"role": "system", "content": content})
 
-async def run_tool_loop(messages, max_iterations=5, tier="free"):
+def _last_user_text(messages) -> str:
+    for m in reversed(messages):
+        if m.get("role") == "user" and isinstance(m.get("content"), str):
+            return m["content"]
+    return ""
+
+async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
+                        charge=True, tool_names=None, agent_name=None):
+    """Bucle principal orquestador->modelo->tools.
+
+    - uid + charge: descuenta Xens Credits con los tokens reales de cada
+      llamada LLM (modelo elegido por core.model_router según la tarea).
+    - tool_names: restringe el conjunto de tools (sub-agentes).
+    """
     provider = get_provider()
 
-    allowed, remaining, limit, reset_sec = ratelimiter.check(tier)
-    if not allowed:
-        reset_h = reset_sec // 3600
-        reset_m = (reset_sec % 3600) // 60
-        msg = f"Daily limit reached ({limit - remaining}/{limit}). Resets in ~{reset_h}h{reset_m}m. Upgrade your plan for more."
-        yield {"type": "error", "content": f"\n[Rate limit: {msg}]"}
-        messages.append({"role": "system", "content": f"[RATE LIMITED: {msg}]"})
-        return
+    if uid and charge:
+        allowed, remaining, limit, reset_sec = credits.check(tier, uid=uid)
+        if not allowed:
+            msg = (
+                f"Alcanzaste el límite de Xens Credits de tu plan "
+                f"({limit} al mes). Se renuevan el 1º de cada mes. "
+                f"Mejora tu plan para obtener más."
+            )
+            yield {"type": "error", "content": f"\n[Sin créditos: {msg}]"}
+            messages.append({"role": "system", "content": f"[SIN CREDITOS: {msg}]"})
+            return
+        charge_ctx.set({"uid": uid, "tier": tier})
 
-    ratelimiter.record(tier)
+    prefix = f"[{agent_name}] " if agent_name else ""
     _refresh_working_memory(messages)
     await _trim_context(messages, provider)
 
     consecutive_errors = 0
     for iteration in range(max_iterations):
         llm_messages = _to_llm_messages(messages)
-        tools = _to_tool_schemas()
+        tools = _to_tool_schemas(tool_names)
+        candidates = pick_models(tier, _last_user_text(messages), len(messages),
+                                 escalate=consecutive_errors)
 
         try:
-            result = await provider.chat(llm_messages, tools=tools, tier=tier)
+            result = await provider.chat(llm_messages, tools=tools, tier=tier, models=candidates)
         except Exception as e:
             consecutive_errors += 1
             logger.error(f"LLM chat error: {e}")
             msg = f"Error del proveedor LLM: {e}. Por favor intenta de nuevo."
             messages.append({"role": "user", "content": msg})
-            yield {"type": "error", "content": f"\n[Error LLM: {e}]"}
+            yield {"type": "error", "content": f"\n[{prefix}Error LLM: {e}]"}
             if consecutive_errors >= 2:
                 yield {"type": "error", "content": "\n[No se pudo conectar con el proveedor LLM. Se detiene el intento.]"}
                 return
@@ -156,8 +185,12 @@ async def run_tool_loop(messages, max_iterations=5, tier="free"):
         else:
             consecutive_errors = 0
 
+        if uid and charge:
+            model_used = result.model or (candidates[0].get("model", "") if candidates else "")
+            credits.spend(tier, uid, usage=result.usage, model=model_used)
+
         if result.content:
-            yield {"type": "content", "content": result.content}
+            yield {"type": "content", "content": prefix + result.content}
 
         if not result.tool_calls:
             if result.content:
@@ -247,5 +280,17 @@ async def run_tool_loop(messages, max_iterations=5, tier="free"):
 
         _refresh_working_memory(messages)
 
-    async for chunk in provider.chat_stream(_to_llm_messages(messages), tier=tier):
-        yield {"type": "content", "content": chunk}
+    # Agotadas las iteraciones con tools: respuesta final en streaming.
+    candidates = pick_models(tier, _last_user_text(messages), len(messages),
+                             escalate=consecutive_errors)
+    streamed = []
+    async for chunk in provider.chat_stream(_to_llm_messages(messages), tier=tier, models=candidates):
+        yield {"type": "content", "content": prefix + chunk}
+        streamed.append(chunk)
+
+    if uid and charge:
+        model_used = candidates[0].get("model", "") if candidates else ""
+        prompt_tokens = await provider.count_tokens(json.dumps(messages, ensure_ascii=False))
+        completion_tokens = await provider.count_tokens("".join(streamed))
+        credits.spend(tier, uid, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+                      model=model_used)

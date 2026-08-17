@@ -8,8 +8,8 @@ from ..core.config import PORT
 from ..core.llm import run_tool_loop, reset_provider
 from ..core import dependencies as deps
 from ..core import license as lic
+from ..core.credits import credits
 from ..core.firebase_auth import firebase_auth
-from ..core.ratelimit import ratelimiter
 from ..core.tier_config import tier_config
 from ..memory.session import Session
 from ..memory.profile import profile
@@ -100,18 +100,18 @@ class WebServer:
                             if account:
                                 uid = str(account.get("uid") or "")
                                 tier = account.get("tier") or "free"
-                                allowed, remaining, limit, reset = ratelimiter.check(tier=tier, uid=uid)
+                                allowed, remaining, limit, reset_sec = credits.check(tier=tier, uid=uid)
                                 if not allowed:
                                     await ws.send_json({
                                         "type": "error",
                                         "content": (
-                                            f"Alcanzaste el límite diario de tu plan "
-                                            f"({limit} chats). Vuelve mañana o mejora tu plan."
+                                            f"Alcanzaste el límite de Xens Credits de tu plan "
+                                            f"({limit} al mes). Se renuevan el 1º de cada mes. "
+                                            f"Mejora tu plan para obtener más."
                                         ),
                                     })
                                     await ws.send_json({"type": "done"})
                                     continue
-                                ratelimiter.record(tier=tier, uid=uid)
                             else:
                                 gate = await asyncio.to_thread(lic.gate_status)
                                 if not gate["allowed"]:
@@ -126,8 +126,9 @@ class WebServer:
 
                             full = ""
                             tier = account.get("tier") if account else registry.get_tier()
+                            uid = str(account.get("uid") or "") if account else None
                             try:
-                                async for chunk in run_tool_loop(messages, tier=tier):
+                                async for chunk in run_tool_loop(messages, tier=tier, uid=uid):
                                     if isinstance(chunk, dict):
                                         await ws.send_json(chunk)
                                         if chunk["type"] == "content":
@@ -142,6 +143,15 @@ class WebServer:
 
                             if full:
                                 session.add("assistant", full)
+
+                            if account:
+                                used, credit_limit = credits.get_usage(tier=tier, uid=uid)
+                                await ws.send_json({
+                                    "type": "credits",
+                                    "credits": max(0, credit_limit - used),
+                                    "creditsUsed": used,
+                                    "creditsLimit": credit_limit,
+                                })
 
                             msgs_count = len(session.messages)
                             if msgs_count > 0 and msgs_count % 8 == 0:
@@ -238,7 +248,7 @@ class WebServer:
         if account:
             uid = str(account.get("uid") or "")
             tier = account.get("tier") or "free"
-            used, message_limit = ratelimiter.get_usage(tier=tier, uid=uid)
+            used, credit_limit = credits.get_usage(tier=tier, uid=uid)
             lic_state = lic.get_state()
             return web.json_response({
                 "account": True,
@@ -246,8 +256,10 @@ class WebServer:
                 "name": account.get("name") or "",
                 "email": account.get("email") or "",
                 "interactions": used,
-                "messageCount": used,
-                "messageLimit": message_limit,
+                "credits": max(0, credit_limit - used),
+                "creditsUsed": used,
+                "creditsLimit": credit_limit,
+                "creditsResetAt": credits._seconds_until_reset(),
                 "plan": tier,
                 "license": lic_state,
             })
@@ -256,15 +268,12 @@ class WebServer:
         tier = lic_state.get("tier") or "free"
         # El tier FREE ES la prueba gratuita: un solo contador (trial),
         # no dos números distintos en pantalla.
-        # Los límites anunciados DEBEN coincidir con los que aplica el
-        # ratelimiter (core/tier_config.json), o la UI promete lo que
-        # la app va a rechazar.
-        message_limit = tier_config.get_daily_limit(tier)
-        message_count = (
-            lic_state.get("trial_used", 0)
-            if tier == "free"
-            else profile.interaction_count
-        )
+        if tier == "free":
+            message_limit = lic_state.get("trial_limit", 300)
+            message_count = lic_state.get("trial_used", 0)
+        else:
+            message_limit = 999999
+            message_count = profile.interaction_count
         return web.json_response({
             "account": False,
             "name": profile.name or "",
@@ -272,6 +281,7 @@ class WebServer:
             "interactions": profile.interaction_count,
             "messageCount": message_count,
             "messageLimit": message_limit,
+            "credits": None,
             "plan": tier,
             "license": lic_state,
         })
