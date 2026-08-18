@@ -1,5 +1,11 @@
 # Novedades — Xens Assistant
 
+## v20260818 — Disparadores proactivos
+
+- **Disparadores automáticos** (plan Pro/Premium): pedile "cada 30 minutos revisá mi bandeja" o "todas las mañanas a las 9 resumí mis notas" y Xens lo hace solo, sin que se lo recuerdes. También puede actuar cuando termina una tarea: "cuando termine de compilar, avisame".
+- **Control de costos**: cada disparo presupuesta Xens Credits; podés limitar los disparos por día y elegir que solo actúe mientras estás conectado. Los eventos llegan como notas de sistema.
+- Administralos con "¿qué disparadores tengo?" (list_triggers) y "eliminá el disparador X" (delete_trigger).
+
 ## v20260817 — Tareas en segundo plano
 
 - **La conversación ya no se bloquea con la ejecución**: mientras Xens procesa una tarea larga (código, web, archivos), podés seguir escribiéndole; cada respuesta corre en su propia burbuja y todo llega ordenado.

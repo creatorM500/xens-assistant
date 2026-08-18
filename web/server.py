@@ -11,6 +11,7 @@ from ..core import license as lic
 from ..core.credits import credits
 from ..core.firebase_auth import firebase_auth
 from ..core.tasks import task_manager
+from ..core.triggers import trigger_manager
 from ..core.tier_config import tier_config
 from ..memory.session import Session
 from ..memory.profile import profile
@@ -32,6 +33,10 @@ class WebServer:
         self._send_lock = asyncio.Lock()
         self._session_lock = asyncio.Lock()
         self._session_epoch = 0
+        # UIDs con conexión WS activa: los disparadores online_only solo
+        # disparan si su dueño está conectado (control de costos).
+        self._connected_uids: set = set()
+        trigger_manager.set_online_check(lambda uid: uid in self._connected_uids)
 
     def _build_messages(self, session=None):
         session = session or self._session
@@ -60,10 +65,12 @@ class WebServer:
             # Eventos de tareas: solo al dueño (uid de la cuenta) de la tarea.
             try:
                 owner = (rec.get("meta") or {}).get("uid")
+                account = acct_state.get("account")
                 if owner:
-                    account = acct_state.get("account")
                     if not account or str(account.get("uid") or "") != owner:
                         return
+                elif account:
+                    return  # tarea local: solo a conexiones locales
                 await send({
                     "type": "task_event",
                     "task": {
@@ -76,7 +83,29 @@ class WebServer:
             except Exception:
                 pass
 
+        async def on_trigger(evt: dict):
+            # Eventos de disparadores: solo al dueño (o a conexiones locales).
+            try:
+                t = trigger_manager.get(evt.get("id") or "")
+                owner = (t.get("owner") if t else None) or evt.get("owner")
+                account = acct_state.get("account")
+                if owner:
+                    if not account or str(account.get("uid") or "") != owner:
+                        return
+                elif account:
+                    return
+                await send({"type": "trigger_event", "trigger": {
+                    "id": evt.get("id"),
+                    "name": evt.get("name"),
+                    "status": evt.get("status"),
+                    "task_id": evt.get("task_id"),
+                    "reason": evt.get("reason"),
+                }})
+            except Exception:
+                pass
+
         listener_id = task_manager.subscribe(on_task)
+        trigger_listener_id = trigger_manager.subscribe(on_trigger)
         heartbeat_task = asyncio.ensure_future(self._heartbeat(ws, send))
 
         try:
@@ -96,6 +125,7 @@ class WebServer:
                             if claims:
                                 acct_state["account"] = claims
                                 uid = str(claims.get("uid") or "")
+                                self._connected_uids.add(uid)
                                 session = Session(f"acct:{uid}")
                                 tier = claims.get("tier") or "free"
                                 try:
@@ -225,7 +255,11 @@ class WebServer:
 
         finally:
             task_manager.unsubscribe(listener_id)
+            trigger_manager.unsubscribe(trigger_listener_id)
             heartbeat_task.cancel()
+            acc = acct_state.get("account")
+            if acc:
+                self._connected_uids.discard(str(acc.get("uid") or ""))
 
         return ws
 
@@ -392,8 +426,10 @@ class WebServer:
         await self._runner.setup()
         site = web.TCPSite(self._runner, "127.0.0.1", PORT)
         await site.start()
+        trigger_manager.start()
         logger.info(f"Web UI at http://127.0.0.1:{PORT}")
 
     async def stop(self):
+        trigger_manager.stop()
         if self._runner:
             await self._runner.cleanup()

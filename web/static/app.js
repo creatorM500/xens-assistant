@@ -1426,6 +1426,16 @@
     attemptReconnect();
   }
 
+  function handleTriggerEvent(trigger) {
+    if (!trigger) return;
+    const name = String(trigger.name || "disparador");
+    if (trigger.status === "fired") {
+      addSystemNote(`Disparador «${name}» activado — tarea en segundo plano lanzada.`);
+    } else if (trigger.status === "error") {
+      addSystemNote(`El disparador «${name}» falló: ${trigger.reason || "error desconocido"}`);
+    }
+  }
+
   function handleTaskEvent(task) {
     if (!task) return;
     const name = String(task.name || "tarea");
@@ -1478,6 +1488,10 @@
 
       case "task_event":
         handleTaskEvent(data.task);
+        break;
+
+      case "trigger_event":
+        handleTriggerEvent(data.trigger);
         break;
 
       case "auth_ok":
