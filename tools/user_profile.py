@@ -5,9 +5,20 @@ import threading
 import time
 from datetime import datetime
 from .registry import register
+from ..core.llm import charge_ctx
 
-STORAGE_PATH = os.path.join(os.path.expanduser("~"), ".xens", "user_profile.json")
+STORAGE_DIR = os.path.join(os.path.expanduser("~"), ".xens")
+STORAGE_PATH = os.path.join(STORAGE_DIR, "user_profile.json")
 _file_lock = threading.Lock()
+
+
+def _storage_path() -> str:
+    # Perfil aislado por cuenta (SaaS): ~/.xens/user_profile-{uid}.json.
+    ctx = charge_ctx.get()
+    uid = (ctx or {}).get("uid") if isinstance(ctx, dict) else None
+    if uid:
+        return os.path.join(STORAGE_DIR, f"user_profile-{uid}.json")
+    return STORAGE_PATH
 
 CONFIDENCE_DECAY_DAYS = 14
 CONFIDENCE_BOOST = 0.1
@@ -43,20 +54,22 @@ def _empty() -> dict:
 
 
 def _load() -> dict:
+    path = _storage_path()
     with _file_lock:
-        if not os.path.exists(STORAGE_PATH):
+        if not os.path.exists(path):
             return _empty()
         try:
-            with open(STORAGE_PATH, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return _empty()
 
 
 def _save(data: dict):
+    path = _storage_path()
     with _file_lock:
-        os.makedirs(os.path.dirname(STORAGE_PATH), exist_ok=True)
-        with open(STORAGE_PATH, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
 

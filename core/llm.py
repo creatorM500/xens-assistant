@@ -7,7 +7,7 @@ from ..core.model_router import pick as pick_models
 from ..core.tier_config import tier_config
 from ..tools.registry import registry
 from ..tools.working_memory import working_memory
-from ..tools.tool_search import _discovered_tools
+from ..tools.tool_search import _discovered_tools, _touch
 from ..llm.factory import create_provider
 from ..llm.base import Message
 
@@ -23,7 +23,12 @@ CORE_TOOLS = {
     "screenshot", "read_screen",
     "speak", "listen",
     "list_categories", "get_tool_schemas",
+    "run_any_tool",
 }
+
+# Los resultados de tools entran al contexto de la siguiente llamada LLM:
+# truncarlos evita que outputs enormes dominen el prompt (y el costo).
+_TOOL_RESULT_CAP = 4000
 
 _provider = None
 
@@ -240,6 +245,7 @@ async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
             yield {"type": "tool_call", "name": name, "args": args}
 
             try:
+                _touch(name)
                 output = await registry.execute(name, args)
             except Exception as e:
                 output = json.dumps({"error": f"Error ejecutando '{name}': {e}", "success": False})
@@ -274,6 +280,11 @@ async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
                 safe = dict(parsed)
                 del safe["screenshot"]
                 stored = json.dumps(safe)
+            if len(stored) > _TOOL_RESULT_CAP:
+                stored = stored[:_TOOL_RESULT_CAP] + (
+                    f"\n...[resultado truncado: {len(content)} caracteres. "
+                    f"Usa la tool con parámetros más específicos para ver el resto]"
+                )
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc_id,

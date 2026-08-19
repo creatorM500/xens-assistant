@@ -11,7 +11,7 @@ _last_userinfo = 0.0
 def _to_messages(chat: list[dict]) -> list[Message]:
     return [Message(role=m["role"], content=m.get("content", "")) for m in chat]
 
-async def summarize_conversation(messages):
+async def summarize_conversation(messages, uid=None):
     global _last_summary
     if time.time() - _last_summary < 90.0:
         return ""
@@ -33,15 +33,17 @@ async def summarize_conversation(messages):
                                      max_tokens=100, temperature=0.3)
         summary = (result.content or "").strip()
         if summary:
+            profile.load(uid)
             profile.last_summary = summary
-            profile.save()
+            profile._dirty = True
+            profile._flush()
             return summary
     except Exception as e:
         logger.warning("summarize_conversation failed: %s", e)
     return ""
 
 
-async def extract_user_info(messages):
+async def extract_user_info(messages, uid=None):
     global _last_userinfo
     if time.time() - _last_userinfo < 30.0:
         return
@@ -65,7 +67,7 @@ async def extract_user_info(messages):
     check = "\n".join(f"- {f}" for f in facts)
 
     chat = [
-        {"role": "system", "content": f"You are extracting information about a user from their messages. The user said:\n\n{text}\n\nDoes this message contain any of the following?\n{check}\n\nIf yes, extract the fact in one short sentence. If no, say 'NONE'. Return only the fact or 'NONE'."},
+        {"role": "system", "content": f"You are extracting information about a user from their messages. The user said:\n\n{text}\n\nDoes this message contain any of the following?\n{check}\n\nIf the message names a specific project or ongoing work, return 'PROJECT: <project name>'. If it contains both a project and another fact, return 'PROJECT: <project name> | <fact>'. If yes (no project), extract the fact in one short sentence. If no, say 'NONE'. Return only the result."},
     ]
 
     try:
@@ -74,7 +76,21 @@ async def extract_user_info(messages):
                                      max_tokens=60, temperature=0.2)
         fact = (result.content or "").strip()
         if fact and fact != "NONE":
-            profile.learn_fact(fact)
-            logger.info(f"Learned: {fact}")
+            profile.load(uid)
+            project = None
+            if "PROJECT:" in fact:
+                project = fact.split("PROJECT:", 1)[1].split("|", 1)[0].strip()
+                rest = fact.split("PROJECT:", 1)[1]
+                if "|" in rest:
+                    fact = rest.split("|", 1)[1].strip()
+                else:
+                    fact = "NONE"
+            if project:
+                profile.add_project(project, text[:200])
+                profile.track_topic(project)
+                logger.info(f"Project tracked: {project}")
+            if fact and fact != "NONE":
+                profile.learn_fact(fact)
+                logger.info(f"Learned: {fact}")
     except Exception as e:
         logger.warning("extract_user_info failed: %s", e)

@@ -1436,6 +1436,29 @@
     }
   }
 
+  function showScreenshot(data, reqId) {
+    if (!data || !data.base64) return;
+    const target = reqId ? (bubbleEntry(reqId) || {}).bubble : state.currentAssistantBubble;
+    if (!target) return;
+    let imgs = target.querySelector(".shot-strip");
+    if (!imgs) {
+      imgs = document.createElement("div");
+      imgs.className = "shot-strip";
+      target.appendChild(imgs);
+    }
+    const img = document.createElement("img");
+    img.className = "shot";
+    img.src = `data:image/png;base64,${data.base64}`;
+    if (data.width && data.height) {
+      img.title = `${data.width}×${data.height}`;
+    }
+    img.addEventListener("click", () => {
+      window.open(img.src, "_blank");
+    });
+    imgs.appendChild(img);
+    scrollToBottom();
+  }
+
   function handleTaskEvent(task) {
     if (!task) return;
     const name = String(task.name || "tarea");
@@ -1484,6 +1507,10 @@
       case "error":
         finishAssistantBubble(reqId);
         addSystemNote(data.message || data.content || "Ocurrió un error procesando tu mensaje.");
+        break;
+
+      case "screenshot":
+        showScreenshot(data, reqId);
         break;
 
       case "task_event":

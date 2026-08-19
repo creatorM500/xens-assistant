@@ -1,7 +1,42 @@
 import json
 from .registry import register, registry
 
+# Tools descubiertas en esta sesión. Se mantienen en el contexto de la
+# siguiente llamada LLM, por lo que están TOPEADAS con eviction LRU:
+# descubrir más allá del límite evicta las menos usadas (ahorro de tokens).
 _discovered_tools: set[str] = set()
+_discovery_order: list[str] = []
+_MAX_DISCOVERED = 40
+
+
+def _touch(name: str):
+    """Marca una tool como usada (LRU). Se llama al ejecutar una tool."""
+    if name in _discovery_order:
+        _discovery_order.remove(name)
+        _discovery_order.append(name)
+
+
+def _evict_oldest():
+    while len(_discovered_tools) > _MAX_DISCOVERED and _discovery_order:
+        oldest = _discovery_order.pop(0)
+        _discovered_tools.discard(oldest)
+
+
+def _discover(names) -> list[str]:
+    """Agrega tools al set activo aplicando el límite LRU. Devuelve las
+    evictadas (si las hay) para informarlo al modelo."""
+    evicted = []
+    for n in names:
+        if n in _discovered_tools:
+            _touch(n)
+            continue
+        _discovered_tools.add(n)
+        _discovery_order.append(n)
+        if len(_discovered_tools) > _MAX_DISCOVERED:
+            oldest = _discovery_order.pop(0)
+            _discovered_tools.discard(oldest)
+            evicted.append(oldest)
+    return evicted
 
 _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("browser_", "browser"),
@@ -167,9 +202,44 @@ def get_tool_schemas(names: list[str] = None, categories: list[str] = None, quer
     if not to_discover:
         return "No tools matched the given criteria. Use list_categories to see available categories."
 
-    _discovered_tools.update(to_discover)
+    evicted = _discover(list(to_discover))
     schemas = registry.get_schemas_by_names(list(to_discover))
     added = len(to_discover)
     visible = len(registry.tool_names) + len(_discovered_tools)
     names_list = ", ".join(sorted(to_discover))
-    return f"Discovered {added} tool(s): {names_list}. Now available: {visible} tools."
+    note = ""
+    if evicted:
+        note = (f" Note: {len(evicted)} least-used tool(s) were dropped from the "
+                f"active set to save context: {', '.join(sorted(evicted))}. "
+                f"Re-discover them if needed.")
+    return f"Discovered {added} tool(s): {names_list}. Now available: {visible} tools.{note}"
+
+
+@register(
+    name="run_any_tool",
+    description=(
+        "Execute ANY tool by name with its arguments as a JSON string. "
+        "Use this for tools you haven't discovered instead of get_tool_schemas — "
+        "no need to wait a turn. The tool's tier still applies."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Exact tool name (use list_categories to find it)"},
+            "args_json": {"type": "string", "description": "Arguments as a JSON object string, e.g. '{\"url\": \"https://x.com\"}'. Use {} for tools without arguments."},
+        },
+        "required": ["name", "args_json"],
+    },
+    tier="free",
+)
+async def run_any_tool(name: str, args_json: str = "{}"):
+    name = (name or "").strip()
+    if not name or name not in registry._tools:
+        return json.dumps({"error": f"Tool '{name}' not found. Use list_categories to see available tools.", "success": False})
+    try:
+        args = json.loads(args_json) if args_json else {}
+    except json.JSONDecodeError as e:
+        return json.dumps({"error": f"args_json is not valid JSON: {e}. Fix the JSON and retry.", "success": False})
+    if not isinstance(args, dict):
+        return json.dumps({"error": "args_json must be a JSON object", "success": False})
+    return await registry.execute(name, args)

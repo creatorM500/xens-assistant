@@ -18,6 +18,7 @@ AGENT_TOOLS = {
     "web_search", "web_fetch",
     "wm_set", "wm_get", "wm_snapshot",
     "list_categories", "get_tool_schemas", "system_info",
+    "run_any_tool",
 }
 
 MAX_CONCURRENT = {"free": 0, "pro": 2, "premium": 4}

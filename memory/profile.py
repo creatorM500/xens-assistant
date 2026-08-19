@@ -31,11 +31,26 @@ class UserProfile:
         self.bio = ""
         self._dirty = False
         self._last_save = 0.0
+        self._uid = None
+        self._file = PROFILE_FILE
 
-    def load(self):
-        if PROFILE_FILE.exists():
+    def _profile_file(self, uid):
+        # Perfil aislado por cuenta (SaaS): ~/.xens/profile-{uid}.json.
+        # Sin uid (modo local): ~/.xens/profile.json como siempre.
+        if uid:
+            return PROFILE_DIR / f"profile-{uid}.json"
+        return PROFILE_FILE
+
+    def load(self, uid=None):
+        if uid is not None:
+            uid = str(uid)
+        if uid != self._uid:
+            self._reset_state()
+            self._uid = uid
+            self._file = self._profile_file(uid)
+        if self._file.exists():
             try:
-                with open(PROFILE_FILE) as f:
+                with open(self._file) as f:
                     data = json.load(f)
                     self.name = data.get("name", "")
                     self.first_seen = data.get("first_seen", time.time())
@@ -49,6 +64,19 @@ class UserProfile:
             except:
                 pass
 
+    def _reset_state(self):
+        self.name = ""
+        self.first_seen = time.time()
+        self.interaction_count = 0
+        self.preferences = {}
+        self.projects = []
+        self.facts = []
+        self.common_topics = {}
+        self.last_summary = ""
+        self.bio = ""
+        self._dirty = False
+        self._last_save = 0.0
+
     def save(self):
         if not self._dirty:
             return
@@ -60,7 +88,7 @@ class UserProfile:
     def _flush(self):
         PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         try:
-            with open(PROFILE_FILE, "w") as f:
+            with open(self._file, "w") as f:
                 json.dump({
                     "name": self.name,
                     "first_seen": self.first_seen,
@@ -86,7 +114,7 @@ class UserProfile:
         self.facts.append(fact)
         self.facts = self.facts[-50:]
         self._dirty = True
-        self.save()
+        self._flush()
 
     def add_project(self, name, description=""):
         for p in self.projects:
@@ -95,19 +123,18 @@ class UserProfile:
                 if description:
                     p["description"] = description
                 self._dirty = True
-                self.save()
+                self._flush()
                 return
         self.projects.append({"name": name, "description": description, "created": time.time(), "last_active": time.time()})
         self.projects = self.projects[-20:]
         self._dirty = True
-        self.save()
+        self._flush()
 
     def track_topic(self, topic):
         if topic:
             self.common_topics[topic] = self.common_topics.get(topic, 0) + 1
             self._dirty = True
-            if sum(self.common_topics.values()) % 10 == 0:
-                self.save()
+            self._flush()
 
     def get_memory_context(self):
         parts = []

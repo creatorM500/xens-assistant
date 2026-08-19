@@ -30,7 +30,6 @@ class WebServer:
         # cada mensaje corre su propio task (run_tool_loop) con un snapshot
         # aislado del contexto, de modo que una tarea larga (tools, LLM) no
         # bloquea la conversación y viceversa.
-        self._send_lock = asyncio.Lock()
         self._session_lock = asyncio.Lock()
         self._session_epoch = 0
         # UIDs con conexión WS activa: los disparadores online_only solo
@@ -38,9 +37,9 @@ class WebServer:
         self._connected_uids: set = set()
         trigger_manager.set_online_check(lambda uid: uid in self._connected_uids)
 
-    def _build_messages(self, session=None):
+    def _build_messages(self, session=None, uid=None):
         session = session or self._session
-        profile.load()
+        profile.load(uid)
         memory_ctx = profile.get_memory_context()
         system = build_system(memory_context=memory_ctx)
         messages = [{"role": "system", "content": system}]
@@ -56,10 +55,16 @@ class WebServer:
         # compartida entre pestañas de la misma cuenta).
         acct_state: dict = {"account": None}
         session = Session("web")
+        # Lock de envío POR CONEXIÓN: un cliente muerto no puede bloquear
+        # los envíos de las demás conexiones (un send atascado en un socket
+        # zombie no debe tumbar el servidor entero).
+        send_lock = asyncio.Lock()
 
         async def send(data: dict):
-            async with self._send_lock:
-                await ws.send_json(data)
+            # Timeout de guardia: si el socket está muerto, raise en vez de
+            # colgarse para siempre; el handler hace teardown de la conexión.
+            async with send_lock:
+                await asyncio.wait_for(ws.send_json(data), timeout=15)
 
         async def on_task(rec: dict):
             # Eventos de tareas: solo al dueño (uid de la cuenta) de la tarea.
@@ -206,7 +211,9 @@ class WebServer:
                             await send({"type": "cleared"})
 
                         elif data.get("type") == "get_profile":
-                            profile.load()
+                            account = acct_state.get("account")
+                            uid = str(account.get("uid") or "") if account else None
+                            profile.load(uid)
                             ctx = profile.get_memory_context()
                             await send({"type": "profile", "content": ctx})
 
@@ -273,7 +280,7 @@ class WebServer:
 
             async with self._session_lock:
                 epoch = self._session_epoch
-                messages = copy.deepcopy(self._build_messages(session))
+                messages = copy.deepcopy(self._build_messages(session, uid))
 
             full = ""
             async for chunk in run_tool_loop(messages, tier=tier, uid=uid):
@@ -302,8 +309,8 @@ class WebServer:
 
             msgs_count = len(session.messages)
             if msgs_count > 0 and msgs_count % 8 == 0:
-                asyncio.ensure_future(summarize_conversation(messages))
-            asyncio.ensure_future(extract_user_info(messages))
+                asyncio.ensure_future(summarize_conversation(messages, uid=uid))
+            asyncio.ensure_future(extract_user_info(messages, uid=uid))
 
             await send({"type": "done", "requestId": request_id or None})
         except Exception as e:

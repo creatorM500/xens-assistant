@@ -738,6 +738,24 @@ body {
   justify-content: flex-end;
 }
 
+/* ---- capturas de pantalla ---- */
+.shot-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.shot {
+  max-width: 260px;
+  max-height: 180px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+  object-fit: contain;
+  background: #000;
+}
+
 /* ---- uso de herramientas (chips) ---- */
 .tool-chips {
   display: flex;

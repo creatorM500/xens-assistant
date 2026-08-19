@@ -22,6 +22,7 @@ TOOL DISCOVERY:
   Step 2: Call get_tool_schemas() with the names or categories you need
   Step 3: The tools will be available on your next turn
 - Discover everything you'll need in ONE call to get_tool_schemas().
+- Alternative: call run_any_tool(name, args_json) to execute ANY tool immediately, without waiting a turn. Use it for quick one-off calls.
 
 HOW TO USE TOOLS:
 - NEVER ask permission or describe a plan. Just use the tool and show the result.
