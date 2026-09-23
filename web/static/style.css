@@ -47,7 +47,67 @@ body {
   display: flex;
   flex-direction: column;
   padding: 24px 18px;
+  transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
 }
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+.sidebar-top .brand { margin-bottom: 0; }
+.sidebar-toggle { flex-shrink: 0; }
+
+/* collapsed */
+.app.sidebar-collapsed .sidebar {
+  width: 64px;
+  min-width: 64px;
+  padding: 24px 8px;
+  align-items: center;
+}
+.app.sidebar-collapsed .sidebar .brand,
+.app.sidebar-collapsed .new-chat-label,
+.app.sidebar-collapsed .sidebar-search .search-input,
+.app.sidebar-collapsed .sidebar-search .search-icon,
+.app.sidebar-collapsed .recent-section,
+.app.sidebar-collapsed .sidebar-footer {
+  display: none !important;
+}
+.app.sidebar-collapsed .new-chat-btn {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+}
+.app.sidebar-collapsed .sidebar-search {
+  justify-content: center;
+  margin-top: 10px;
+}
+.app.sidebar-collapsed .search-toggle {
+  display: flex !important;
+}
+.search-toggle { display: none; }
+.sidebar-search .search-toggle { position: static; }
+
+/* collapsible sections */
+.recent-section.collapsible .collapsible-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+}
+.collapse-arrow { transition: transform 0.2s ease; }
+.collapsible.collapsed .collapse-arrow { transform: rotate(-90deg); }
+.collapsible.collapsed .collapsible-body { display: none !important; }
 
 .brand {
   display: block;
@@ -475,6 +535,7 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  position: relative;
 }
 
 .topbar {
@@ -488,6 +549,18 @@ body {
 .topbar-title {
   font-size: 13px;
   color: var(--text-secondary);
+}
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.model-selector { display: flex; align-items: center; }
+.model-select {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 999px;
+  outline: none;
 }
 
 .status {
@@ -1561,6 +1634,53 @@ body {
   margin-left: auto;
   padding: 10px 22px;
 }
+
+/* ============ XENS TOAST (notificación) ============ */
+.xens-toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.xens-toast-item {
+  pointer-events: auto;
+  background: #1a1a26;
+  border: 1px solid #34344a;
+  color: var(--text-primary);
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  max-width: 380px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+  animation: toastIn 0.2s ease;
+}
+.xens-toast-item.error { border-color: rgba(229,72,77,0.5); }
+.xens-toast-item.warn { border-color: #e0b23d; }
+@keyframes toastIn { from { opacity:0; transform: translateY(-6px);} to { opacity:1; transform:none; } }
+
+/* ============ UPDATE BANNER (beta) ============ */
+.update-banner {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #1a1a26;
+  border: 1px solid var(--accent);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+}
+.update-banner-btn { width: auto; padding: 7px 14px; }
 
 /* ============ SCROLLBARS OSCUROS (global) ============ */
 *::-webkit-scrollbar {

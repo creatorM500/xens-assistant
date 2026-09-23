@@ -59,10 +59,7 @@ a = Analysis(
         "numpy",
         "fsspec",
         "av",
-        "clr",
-        "pythonnet",
         "OpenGL",
-        "webview",
         "pytest",
         "matplotlib",
         "sklearn",
@@ -79,6 +76,12 @@ a = Analysis(
     optimize=0,
 )
 a.datas += [("version.txt", str(Path("version.txt")), "DATA")]
+# Web UI estática: en el bundle el código corre como
+# _MEIPASS/xens_assistant/web/server.py, así que los estáticos van a
+# xens_assistant/web/static (web/server.py los busca ahí primero).
+for _p in sorted((PKG / "web" / "static").rglob("*")):
+    if _p.is_file():
+        a.datas += [((Path("xens_assistant") / _p.relative_to(PKG)).as_posix(), str(_p), "DATA")]
 pyz = PYZ(a.pure)
 
 exe = EXE(

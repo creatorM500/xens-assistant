@@ -69,7 +69,10 @@ class RemoteProvider(BaseLLM):
             except Exception:
                 err = r.text[:300]
             raise RuntimeError(f"Server error {r.status_code}: {err}")
-        return r.json()
+        try:
+            return r.json()
+        except Exception:
+            raise RuntimeError(f"Server returned non-JSON ({r.status_code}): {r.text[:200]}")
 
     async def chat(self, messages: list[Message], tools: list = None, **kwargs) -> LLMResult:
         payload = {
@@ -77,6 +80,8 @@ class RemoteProvider(BaseLLM):
             "tools": tools or [],
             "tier": kwargs.get("tier", "free"),
             "stream": False,
+            "xens_stream": False,
+            "xens_model": kwargs.get("xens_model") or kwargs.get("alias") or "auto",
         }
         data = await self._post("/api/chat", payload)
         return LLMResult(
@@ -86,10 +91,55 @@ class RemoteProvider(BaseLLM):
             model=data.get("model", self._model),
         )
 
-    async def chat_stream(self, messages: list[Message], tools: list = None, **_kwargs) -> AsyncIterator[str]:
-        result = await self.chat(messages, tools=tools)
+    async def chat_stream(self, messages: list[Message], tools: list = None, **kwargs) -> AsyncIterator[str]:
+        import httpx, json as _json
+        payload = {
+            "messages": _serialize_messages(messages),
+            "tools": tools or [],
+            "tier": kwargs.get("tier", "free"),
+            "stream": True,
+            "xens_model": kwargs.get("xens_model") or kwargs.get("alias") or "auto",
+        }
+        # try true streaming, fallback to buffered chat
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as c:
+                async with c.stream("POST", f"{self._url}/api/chat", json=payload, headers=self._headers()) as r:
+                    if r.status_code == 401:
+                        raise PermissionError("License token invalid (401)")
+                    if r.status_code >= 400:
+                        # fallback to non-stream
+                        raise RuntimeError(f"stream status {r.status_code}")
+                    ctype = r.headers.get("content-type","")
+                    if "text/event-stream" not in ctype and "text/plain" not in ctype:
+                        # not streaming, fallback
+                        raise RuntimeError("not event-stream")
+                    async for line in r.aiter_lines():
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            obj = _json.loads(data)
+                            delta = obj.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content")
+                            if content:
+                                yield content
+                            # tool_calls streaming ignored for now
+                        except Exception:
+                            continue
+                    return
+        except Exception as e:
+            logger.debug("Remote stream fallback: %s", e)
+        # fallback buffered
+        result = await self.chat(messages, tools=tools, **kwargs)
         if result.content:
-            yield result.content
+            # yield word by word to keep perceived streaming
+            for w in result.content.split(" "):
+                yield w + " "
+                # tiny yield to event loop
+                import asyncio
+                await asyncio.sleep(0.02)
 
     async def count_tokens(self, text: str) -> int:
         return max(1, len(text) // 4)

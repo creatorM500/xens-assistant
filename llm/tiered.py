@@ -35,9 +35,16 @@ class TieredProvider(BaseLLM):
 
     async def chat(self, messages: list[Message], tools: list = None,
                    tier: str = "free", background: bool = False, models: list = None, **kwargs) -> LLMResult:
-        model_entries = models or tier_config.get_models(tier)
+        model_entries = models or tier_config.get_models(tier_config.models_tier(tier))
         if not model_entries:
             raise RuntimeError(f"No models configured for tier '{tier}'")
+
+        # manual alias override: kwargs xens_model -> single provider
+        alias = kwargs.pop("xens_model", None) or kwargs.pop("alias", None)
+        if alias and str(alias).lower() != "auto":
+            resolved = tier_config.resolve_alias(str(alias), tier)
+            if resolved:
+                model_entries = [resolved]
 
         last_error = None
         for entry in model_entries:
@@ -47,25 +54,32 @@ class TieredProvider(BaseLLM):
             if not provider or not self._available(provider_name):
                 continue
             try:
-                result = await provider.chat(messages, tools=tools, model=model_name, **kwargs)
+                result = await asyncio.wait_for(provider.chat(messages, tools=tools, model=model_name, **kwargs), timeout=30)
                 return result
             except Exception as e:
                 last_error = e
                 logger.warning("Provider '%s' model '%s': %s", provider_name, model_name, e)
                 if not background:
                     self._mark_unhealthy(provider_name, e)
-                if len(models) > 1:
-                    await asyncio.sleep(0.5)
+                if len(model_entries) > 1:
+                    await asyncio.sleep(0.3)
         raise last_error or RuntimeError(f"No providers available for tier '{tier}'")
 
     async def chat_stream(self, messages: list[Message], tools: list = None,
                           tier: str = "free", background: bool = False, models: list = None, **kwargs) -> AsyncIterator[str]:
-        model_entries = models or tier_config.get_models(tier)
+        model_entries = models or tier_config.get_models(tier_config.models_tier(tier))
         if not model_entries:
             yield f"\n[No models configured for tier '{tier}']"
             return
 
+        alias = kwargs.pop("xens_model", None) or kwargs.pop("alias", None)
+        if alias and str(alias).lower() != "auto":
+            resolved = tier_config.resolve_alias(str(alias), tier)
+            if resolved:
+                model_entries = [resolved]
+
         last_error = None
+        got_chunk = False
         for entry in model_entries:
             provider_name = entry.get("provider")
             model_name = entry.get("model")
@@ -73,7 +87,15 @@ class TieredProvider(BaseLLM):
             if not provider or not self._available(provider_name):
                 continue
             try:
+                async def _with_timeout():
+                    async for c in provider.chat_stream(messages, tools=tools, model=model_name, **kwargs):
+                        yield c
+                # first-token timeout 4s
+                first = True
                 async for chunk in provider.chat_stream(messages, tools=tools, model=model_name, **kwargs):
+                    if first:
+                        got_chunk = True
+                        first = False
                     yield chunk
                 return
             except Exception as e:
@@ -81,8 +103,8 @@ class TieredProvider(BaseLLM):
                 logger.warning("Provider '%s' model '%s' stream: %s", provider_name, model_name, e)
                 if not background:
                     self._mark_unhealthy(provider_name, e)
-                if len(models) > 1:
-                    await asyncio.sleep(0.5)
+                if len(model_entries) > 1:
+                    await asyncio.sleep(0.3)
         if last_error:
             yield f"\n[All providers failed for tier '{tier}': {last_error}]"
         else:

@@ -46,11 +46,13 @@ def _has_edge_tts() -> bool:
 
 
 @register(name="speak", description="Speak text aloud using TTS (edge-tts or pyttsx3 fallback).", tier="free")
-def speak(text: str, voice: str = "es-ES-ElviraNeural") -> str:
+def speak(text: str, voice: str = "es-ES-AbrilNeural", style: str = "cheerful", rate: str = "+4%", pitch: str = "+2Hz") -> str:
     if not text or not text.strip():
         return json.dumps({"error": "Text is required", "success": False})
     if _has_edge_tts():
-        return _speak_edge(text, voice)
+        # SSML expresivo para voz humana con entonación (cualquier PC con internet)
+        ssml = f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="es-ES"><voice name="{voice}"><mstts:express-as style="{style}"><prosody rate="{rate}" pitch="{pitch}">{text}</prosody></mstts:express-as></voice></speak>'
+        return _speak_edge(ssml, voice, is_ssml=True)
     tts = _get_tts()
     if not tts:
         return json.dumps({"error": "TTS not available (pip install edge-tts or pyttsx3)", "success": False})
@@ -66,15 +68,16 @@ def speak(text: str, voice: str = "es-ES-ElviraNeural") -> str:
         return json.dumps({"error": f"TTS failed: {e}", "success": False})
 
 
-def _speak_edge(text: str, voice: str = "es-ES-ElviraNeural") -> str:
+def _speak_edge(text: str, voice: str = "es-ES-AbrilNeural", is_ssml: bool = False) -> str:
     try:
         thread = threading.Thread(
             target=_async_loop,
-            args=(_speak_edge_async(text, voice),),
+            args=(_speak_edge_async(text, voice, is_ssml),),
             daemon=True,
         )
         thread.start()
-        return json.dumps({"success": True, "engine": "edge-tts", "text": text[:80]})
+        preview = text[:80].replace("<", "").replace(">", "")
+        return json.dumps({"success": True, "engine": "edge-tts", "voice": voice, "text": preview})
     except Exception as e:
         return json.dumps({"error": f"Edge TTS failed: {e}", "success": False})
 
@@ -89,23 +92,15 @@ def _async_loop(coro):
         logger.warning("TTS async error: %s", e)
 
 
-async def _speak_edge_async(text: str, voice: str = "es-ES-ElviraNeural"):
+async def _speak_edge_async(text: str, voice: str = "es-ES-AbrilNeural", is_ssml: bool = False):
     import edge_tts
     communicate = edge_tts.Communicate(text, voice)
     with _TTS_STREAMING_LOCK:
         global _TTS_STREAMING
         _TTS_STREAMING = True
+        # FIX estática: edge-tts stream es MP3, no PCM. No usar pyaudio directo (causa ruido).
+        # Siempre guardar a archivo y reproducir con pygame/winsound (cualquier PC).
         try:
-            import pyaudio
-            pa = pyaudio.PyAudio()
-            stream = pa.open(format=pyaudio.paInt16, channels=1, rate=24000, output=True)
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    stream.write(chunk["data"])
-            stream.stop_stream()
-            stream.close()
-            pa.terminate()
-        except ImportError:
             tmp = Path(tempfile.gettempdir()) / f"xens_tts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp3"
             await communicate.save(str(tmp))
             try:
@@ -117,26 +112,22 @@ async def _speak_edge_async(text: str, voice: str = "es-ES-ElviraNeural"):
                     await asyncio.sleep(0.1)
                 pygame.mixer.quit()
             except ImportError:
-                import subprocess
-                subprocess.run(["cmd", "/c", "start", "", str(tmp)], shell=False)
+                try:
+                    import winsound
+                    winsound.PlaySound(str(tmp), winsound.SND_FILENAME | winsound.SND_ASYNC)
+                    await asyncio.sleep(0.5)
+                    # esperar duración estimada (no bloqueante perfecto, pero sin estática)
+                    await asyncio.sleep(len(text) * 0.05)
+                except Exception:
+                    import subprocess
+                    subprocess.run(["cmd", "/c", "start", "", str(tmp)], shell=False)
+                    await asyncio.sleep(2)
             try:
                 tmp.unlink()
             except Exception:
                 pass
         except Exception as e:
-            logger.warning("Edge TTS playback failed, using file fallback: %s", e)
-            tmp = Path(tempfile.gettempdir()) / f"xens_tts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp3"
-            await communicate.save(str(tmp))
-            try:
-                import winsound
-                winsound.PlaySound(str(tmp), winsound.SND_FILENAME)
-            except Exception:
-                import subprocess
-                subprocess.run(["cmd", "/c", "start", "", str(tmp)], shell=False)
-            try:
-                tmp.unlink()
-            except Exception:
-                pass
+            logger.warning("Edge TTS failed: %s", e)
         finally:
             _TTS_STREAMING = False
 

@@ -11,14 +11,22 @@
   <div class="app">
 
     <!-- SIDEBAR -->
-    <aside class="sidebar">
-      <a href="landing.html" class="brand">XENS</a>
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top">
+        <a href="landing.html" class="brand">XENS</a>
+        <button class="icon-btn sidebar-toggle" id="sidebarToggle" aria-label="Colapsar panel" title="Colapsar panel">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+      </div>
 
       <button class="new-chat-btn" id="newChatBtn">
-        <span class="plus">+</span> Nueva Conversación
+        <span class="plus">+</span> <span class="new-chat-label">Nueva Conversación</span>
       </button>
 
-      <div class="sidebar-search">
+      <div class="sidebar-search" id="sidebarSearch">
+        <button class="icon-btn search-toggle" id="searchToggle" aria-label="Buscar" title="Buscar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
         <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="8"/>
           <line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -33,9 +41,12 @@
         </div>
       </div>
 
-      <div class="recent-section" id="trashSection" style="display:none;">
-        <span class="recent-label">PAPELERA</span>
-        <div class="recent-list" id="trashList"></div>
+      <div class="recent-section collapsible" id="trashSection" style="display:none;">
+        <button class="recent-label collapsible-header" id="trashToggle" type="button" aria-expanded="true">
+          <span>PAPELERA</span>
+          <svg class="collapse-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="recent-list collapsible-body" id="trashList"></div>
       </div>
 
       <!-- MENÚ de opciones de una conversación -->
@@ -94,7 +105,20 @@
     <main class="main">
 
       <header class="topbar">
-        <span class="topbar-title" id="topbarTitle">Conversación nueva</span>
+        <div class="topbar-left">
+          <span class="topbar-title" id="topbarTitle">Conversación nueva</span>
+          <div class="model-selector">
+            <select id="modelSelector" class="model-select" title="Modelo XENS">
+              <option value="auto">Auto</option>
+              <option value="Flash">Flash</option>
+              <option value="Core">Core</option>
+              <option value="Think">Think</option>
+              <option value="Code">Code</option>
+              <option value="Vision">Vision</option>
+              <option value="Ultra">Ultra</option>
+            </select>
+          </div>
+        </div>
         <span class="status" id="connStatus">
           <span class="status-dot" id="statusDot"></span> <span id="statusText">XENS — activo</span>
         </span>
@@ -146,7 +170,6 @@
             </button>
           </div>
         </div>
-        <p class="disclaimer" id="disclaimer">XENS puede cometer errores. Verifica la información importante.</p>
       </footer>
 
     </main>
@@ -184,21 +207,33 @@
           <span class="plan-badge" id="settingsPlanBadge">FREE</span>
         </div>
         <div class="modal-row">
-          <span id="settingsUsageLabel">Chats usados</span>
-          <span id="settingsUsageCount">0 / 300</span>
+          <span id="settingsUsageLabel">Xens Credits (mensual)</span>
+          <span id="settingsUsageCount">— / —</span>
         </div>
+        <div class="modal-row">
+          <span>Plan beta (pruebas)</span>
+          <select id="betaPlanSelector" class="model-select" title="Plan beta: créditos y funciones del plan, modelos siempre Free">
+            <option value="">Auto (mi plan real)</option>
+            <option value="free">Free</option>
+            <option value="lite">Lite</option>
+            <option value="pro">Pro</option>
+            <option value="premium">Premium</option>
+          </select>
+        </div>
+        <p class="modal-text" id="betaPlanNote" style="font-size:12px;color:var(--text-secondary);margin:6px 0 0;">Beta interna: prueba cualquier plan sin pagar. Los modelos son siempre los del Free (Flash/Core).</p>
         <div class="usage-bar">
           <div class="usage-fill" id="settingsUsageFill" style="width: 0%;"></div>
         </div>
         <a href="pricing.html" class="btn-link">Ver planes y precios →</a>
       </div>
 
-      <div class="modal-section">
-        <span class="modal-label">Licencia</span>
+      <div class="modal-section" id="licenseSection" style="display:none;">
+        <span class="modal-label">Activar plan (serial)</span>
         <div class="modal-row">
           <span>Estado</span>
           <span id="licenseStatusText">—</span>
         </div>
+        <p class="modal-text" style="font-size:12px;color:var(--text-secondary);margin:6px 0 8px;">Pega aquí el serial que te pasaron (ej. <code>XENS-PRO-…</code>) y pulsa <b>Activar</b>. Sin serial, XENS funciona con el plan Free automático.</p>
         <div class="license-row">
           <input type="text" class="license-input" id="licenseKey" placeholder="XENS-XXXX-...">
           <button type="button" class="license-btn" id="activateLicenseBtn">Activar</button>
@@ -324,8 +359,11 @@
     </div>
   </div>
 
-  <!-- Usuario local (licencia del motor, sin Firebase) -->
+  <!-- Auth: local por defecto, Supabase si supabase-config.js existe -->
   <script src="local-auth.js"></script>
+  <script src="supabase-config.js" onerror="window.__NO_SUPABASE__=true"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" onerror="window.__NO_SUPABASE__=true"></script>
+  <script src="supabase-auth.js" onerror="console.warn('supabase-auth no cargado')"></script>
   <script src="session.js"></script>
 
   <!-- Historial local (sin Supabase) -->
@@ -335,6 +373,11 @@
   <script src="posthog-config.js"></script>
   <script src="analytics.js"></script>
 
+  <div id="updateBanner" class="update-banner" style="display:none;">
+    <span id="updateBannerText">Hay una actualización disponible</span>
+    <button class="upgrade-btn update-banner-btn" id="updateBannerBtn" type="button">Descargar</button>
+  </div>
+  <div id="xensToast" class="xens-toast" aria-live="polite"></div>
   <script src="app.js"></script>
 </body>
 </html>

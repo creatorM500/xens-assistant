@@ -41,12 +41,14 @@
     // si el perfil no llega. La prueba gratuita local (trial) usa además
     // un contador total único (300), informado por el estado de licencia.
     PLAN_LIMITS: {
-      free: 10000,
-      pro: 50000,
-      premium: 250000,
+      free: 5000,
+      lite: 15000,
+      pro: 35000,
+      premium: 125000,
     },
     PLAN_META: {
       free: { label: "Plan Gratuito", badge: "FREE" },
+      lite: { label: "Plan Lite", badge: "LITE" },
       pro: { label: "Plan Pro", badge: "PRO" },
       premium: { label: "Plan Premium", badge: "PREMIUM" },
     },
@@ -96,7 +98,10 @@
     settingsBtn: document.getElementById("settingsBtn"),
     settingsOverlay: document.getElementById("settingsOverlay"),
     closeSettingsBtn: document.getElementById("closeSettingsBtn"),
+    settingsName: document.getElementById("settingsName"),
+    settingsEmail: document.getElementById("settingsEmail"),
     settingsPlanBadge: document.getElementById("settingsPlanBadge"),
+    settingsUsageLabel: document.getElementById("settingsUsageLabel"),
     settingsUsageCount: document.getElementById("settingsUsageCount"),
     settingsUsageFill: document.getElementById("settingsUsageFill"),
 
@@ -195,8 +200,9 @@
 
     // respuestas concurrentes (canal conversacional separado de la
     // ejecución): burbujas por requestId para no pisarse entre sí
-    activeBubbles: {},          // requestId -> {bubble, text}
+    activeBubbles: {},          // requestId -> {bubble, text, convId}
     activeReqIds: new Set(),
+    pendingConv: {},            // requestId -> origin convId (para no perder si cambias de chat)
     currentAssistantText: "",
 
     // último texto enviado por el usuario (para "rehacer respuesta")
@@ -432,6 +438,58 @@
     check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
   };
 
+  function showToast(msg, kind){
+    const c=document.getElementById("xensToast");
+    if(!c) return;
+    const it=document.createElement("div");
+    it.className="xens-toast-item "+(kind||"error");
+    it.textContent=msg;
+    c.appendChild(it);
+    setTimeout(()=>{ it.style.opacity="0"; it.style.transform="translateY(-4px)"; }, 4000);
+    setTimeout(()=> it.remove(), 4400);
+  }
+  window.XensToast = showToast;
+  // ---- update de exe (beta): banner Descargar -> Reiniciar ----
+  const upd = { checked: false, downloading: false };
+  function updateBanner(show, text, btnLabel, onClick) {
+    const b = document.getElementById("updateBanner");
+    if (!b) return;
+    b.style.display = show ? "flex" : "none";
+    if (text) document.getElementById("updateBannerText").textContent = text;
+    const btn = document.getElementById("updateBannerBtn");
+    if (btn) {
+      if (btnLabel) btn.textContent = btnLabel;
+      btn.onclick = onClick || null;
+      btn.disabled = !onClick;
+    }
+  }
+  function handleExeUpdate(data) {
+    if (data.restarting) {
+      updateBanner(true, "Reiniciando para aplicar la actualización…", "…", null);
+      return;
+    }
+    if (data.downloaded) {
+      updateBanner(true, "Descarga lista. Reinicia XENS para aplicar la actualización.", "Reiniciar", () => {
+        updateBanner(true, "Reiniciando…", "…", null);
+        sendToServer({ type: "restart_for_exe_update" });
+      });
+      return;
+    }
+    if (data.error && !data.exe_update) {
+      if (data.error) showToast(data.error, "error");
+      upd.downloading = false;
+      return;
+    }
+    if (data.exe_update) {
+      const v = data.exe_version || "";
+      updateBanner(true, `Nueva versión beta disponible (${v}).`, "Descargar", () => {
+        if (upd.downloading) return;
+        upd.downloading = true;
+        updateBanner(true, "Descargando actualización (~90 MB)…", "…", null);
+        sendToServer({ type: "download_exe_update" });
+      });
+    }
+  }
   function copyText(text) {
     if (!text) return;
     if (navigator.clipboard && window.isSecureContext) {
@@ -480,6 +538,7 @@
     el.welcomeScreen.style.display = "none";
     el.messages.classList.add("visible");
     el.chatArea.classList.add("has-messages");
+    document.querySelector(".main")?.classList.remove("composer-centered");
     el.topbarTitle.textContent = "Conversación";
   }
 
@@ -490,11 +549,10 @@
     el.welcomeScreen.style.display = "";
     el.messages.classList.remove("visible");
     el.chatArea.classList.remove("has-messages");
+    document.querySelector(".main")?.classList.add("composer-centered");
     el.topbarTitle.textContent = "Conversación nueva";
     state.currentAssistantBubble = null;
     state.currentAssistantText = "";
-    state.activeBubbles = {};
-    state.activeReqIds = new Set();
     state.toolLog = [];
   }
 
@@ -626,6 +684,9 @@
     state.lastUserText = newText;
     const requestId = Date.now() + "-" + Math.random().toString(36).slice(2, 8);
     state.activeReqIds.add(requestId);
+    state.pendingConv[requestId] = state.currentConversationId;
+    const sel2 = document.getElementById("modelSelector");
+    const xens_model2 = sel2 ? sel2.value : "auto";
     startAssistantBubble(requestId);
     const ok = sendToServer({
       type: "message",
@@ -635,6 +696,7 @@
       attachments: [],
       replaceLast: isLastUser,
       replaceUser: isLastUser,
+      xens_model: xens_model2,
     });
     if (!ok) {
       finishAssistantBubble(requestId);
@@ -652,14 +714,21 @@
   }
 
   function bubbleEntry(reqId) {
-    if (!reqId) return null; // ruta clásica de burbuja única
+    if (!reqId) return null;
     let entry = state.activeBubbles[reqId];
     if (!entry) {
-      if (!state.activeReqIds.has(reqId)) return null; // respuesta de una conversación ya cerrada
+      if (!state.activeReqIds.has(reqId)) return null;
+      // Si el request es de otra conversación, no crear burbuja visible; buffer en memoria
+      const originConv = state.pendingConv[reqId];
+      if (originConv && originConv !== state.currentConversationId) {
+        entry = { bubble: null, text: "", convId: originConv, hidden: true };
+        state.activeBubbles[reqId] = entry;
+        return entry;
+      }
       const bubble = document.createElement("div");
       bubble.className = "msg assistant typing";
       el.messages.appendChild(bubble);
-      entry = { bubble, text: "" };
+      entry = { bubble, text: "", convId: originConv || state.currentConversationId };
       state.activeBubbles[reqId] = entry;
       scrollToBottom();
     }
@@ -686,6 +755,7 @@
       const entry = bubbleEntry(reqId);
       if (!entry) return;
       entry.text += chunk;
+      if (entry.hidden) return; // en background, solo acumular texto
       let content = entry.bubble.querySelector(".msg-content");
       if (!content) {
         content = document.createElement("div");
@@ -786,19 +856,26 @@
     if (reqId) {
       const entry = state.activeBubbles[reqId];
       if (!entry) return;
-      const bubble = entry.bubble;
-      bubble.classList.remove("typing");
       const text = entry.text;
-      const hasToolCards = bubble.querySelector(".tool-call");
+      const targetConv = state.pendingConv[reqId] || entry.convId || state.currentConversationId;
+      if (entry.hidden) {
+        if (window.XensDB && targetConv && text) window.XensDB.saveMessage(targetConv, "assistant", text);
+        delete state.activeBubbles[reqId];
+        delete state.pendingConv[reqId];
+        state.activeReqIds.delete(reqId);
+        return;
+      }
+      const bubble = entry.bubble;
+      if (bubble) bubble.classList.remove("typing");
+      const hasToolCards = bubble ? bubble.querySelector(".tool-call") : null;
       if (!text && !hasToolCards) {
-        bubble.remove();
-      } else if (text) {
-        attachMessageActions(bubble, { role: "assistant", withRegenerate: true });
+        if (bubble) bubble.remove();
+      } else if (text && bubble) {
+        attachMessageActions(bubble, { role: "assistant", withRegenerate: targetConv===state.currentConversationId });
       }
-      if (window.XensDB && state.currentConversationId && text) {
-        window.XensDB.saveMessage(state.currentConversationId, "assistant", text);
-      }
+      if (window.XensDB && targetConv && text) window.XensDB.saveMessage(targetConv, "assistant", text);
       delete state.activeBubbles[reqId];
+      delete state.pendingConv[reqId];
       state.activeReqIds.delete(reqId);
       return;
     }
@@ -1051,11 +1128,10 @@
   async function loadConversation(conv) {
     if (!window.XensDB) return;
 
-    state.generation += 1;
+    // No borrar respuestas en vuelo: se siguen guardando en background por convId
+    // Solo limpiar vista actual, mantener activeBubbles/activeReqIds vivos
     state.currentAssistantBubble = null;
     state.currentAssistantText = "";
-    state.activeBubbles = {};
-    state.activeReqIds = new Set();
     state.currentConversationId = conv.id;
     showChatView();
     el.messages.innerHTML = "";
@@ -1125,16 +1201,30 @@
     return String(n);
   }
 
+  function updateAccountUI() {
+    const name = (state.user && (state.user.displayName || state.user.name)) || (state.account && state.account.name) || "—";
+    const email = (state.user && state.user.email) || (state.account && state.account.email) || "—";
+    if (el.settingsName) el.settingsName.textContent = name;
+    if (el.settingsEmail) el.settingsEmail.textContent = email;
+    // topbar user chip
+    const topName = document.getElementById("userName");
+    const topAvatar = document.getElementById("userAvatar");
+    if (topName) topName.textContent = name !== "—" ? name : "Usuario";
+    if (topAvatar && name !== "—") topAvatar.textContent = name.trim()[0].toUpperCase();
+  }
   function updateUsageUI() {
+    try{ if(window.XensUpdateModelSelector) window.XensUpdateModelSelector(state.plan); }catch{}
+    updateAccountUI();
     const meta = CONFIG.PLAN_META[state.plan] || CONFIG.PLAN_META.free;
 
     // Sidebar: solo el nombre del plan, sin números de uso a la vista
-    if (el.planName) el.planName.textContent = meta.label;
-    if (el.planBadge) el.planBadge.textContent = meta.badge;
-    if (el.userPlanTag) el.userPlanTag.textContent = meta.badge;
+    const badge = meta.badge + (state.beta ? " β" : "");
+    if (el.planName) el.planName.textContent = meta.label + (state.beta ? " (beta)" : "");
+    if (el.planBadge) el.planBadge.textContent = badge;
+    if (el.userPlanTag) el.userPlanTag.textContent = badge;
 
     // Modal de Configuración: aquí sí se ve el detalle de uso
-    if (el.settingsPlanBadge) el.settingsPlanBadge.textContent = meta.badge;
+    if (el.settingsPlanBadge) el.settingsPlanBadge.textContent = badge;
     if (el.settingsUsageLabel) {
       el.settingsUsageLabel.textContent = creditsMode() ? "Xens Credits (mensual)" : "Chats usados";
     }
@@ -1165,11 +1255,11 @@
     el.composerInner.classList.add("locked");
     if (creditsMode()) {
       el.composerInput.placeholder = "Sin créditos";
-      el.disclaimer.textContent =
+      if(el.disclaimer) el.disclaimer.textContent =
         "Agotaste tus Xens Credits del mes. Se renuevan el 1º. Mejora tu plan para obtener más.";
     } else {
       el.composerInput.placeholder = "Límite de chats alcanzado";
-      el.disclaimer.textContent =
+      if(el.disclaimer) el.disclaimer.textContent =
         "Alcanzaste el límite de chats de tu plan. Mejora tu plan para seguir chateando.";
     }
   }
@@ -1179,7 +1269,7 @@
     el.sendBtn.disabled = false;
     el.composerInner.classList.remove("locked");
     el.composerInput.placeholder = "Escribe un mensaje...";
-    el.disclaimer.textContent =
+    if(el.disclaimer) el.disclaimer.textContent =
       "XENS puede cometer errores. Verifica la información importante.";
   }
 
@@ -1187,7 +1277,14 @@
      5b. MODAL DE CONFIGURACIÓN
   ---------------------------------------------------------- */
   function openSettings() {
+    if (window.XensAuth && typeof window.XensAuth.refresh === "function") {
+      window.XensAuth.refresh().then(u=>{ if(u){ state.user=u; updateAccountUI(); }}).catch(()=>{});
+    }
     updateUsageUI();
+    sendToServer({type:"get_beta_plan"});
+    // Licencia: visible para enterprise, o para quien aún no tiene plan
+    // (así Samuel ve dónde pegar su serial sin flags raros).
+    sendToServer({type:"get_license"});
     el.settingsOverlay.classList.add("open");
     if (window.XensAnalytics) window.XensAnalytics.track("settings_opened");
   }
@@ -1383,6 +1480,10 @@
       state.reconnectAttempts = 0;
       setConnectionUI("connected");
       sendAuthToken();
+      if (!upd.checked) {
+        upd.checked = true;
+        sendToServer({ type: "check_exe_update" });
+      }
     });
 
     state.socket.addEventListener("message", (event) => {
@@ -1506,7 +1607,12 @@
 
       case "error":
         finishAssistantBubble(reqId);
-        addSystemNote(data.message || data.content || "Ocurrió un error procesando tu mensaje.");
+        {
+          const msg = data.message || data.content || "Ocurrió un error procesando tu mensaje.";
+          // auth / red / proveedor → toast, no burbuja en chat
+          if (/autenticar|auth|internet|conexión|proveedor|provider|token|401|cr[eé]ditos|credits|límite/i.test(msg)) showToast(msg, "error");
+          else addSystemNote(msg);
+        }
         break;
 
       case "screenshot":
@@ -1578,7 +1684,31 @@
         if (data.state) {
           renderLicenseStatus(data.state);
           showLicenseLock(data.state);
+          const licSec = document.getElementById("licenseSection");
+          if (licSec) {
+            const isEnterprise = new URLSearchParams(window.location.search).has("enterprise") || (() => { try { return localStorage.getItem("xens.enterprise")==="1"; } catch { return false; } })();
+            const tier = String(data.state.tier || "free").toLowerCase();
+            const hasPaidPlan = data.state.status === "licensed" && (tier === "pro" || tier === "premium" || tier === "lite");
+            licSec.style.display = (isEnterprise || !hasPaidPlan) ? "" : "none";
+          }
         }
+        break;
+
+      case "beta_plan":
+        if (data.error) {
+          showToast(data.error, "error");
+        } else {
+          if (data.plan) state.plan = data.plan;
+          state.beta = !!data.beta_plan;
+          state.betaPlan = data.beta_plan || "";
+          const sel = document.getElementById("betaPlanSelector");
+          if (sel) sel.value = state.betaPlan;
+          loadProfile();
+        }
+        break;
+
+      case "exe_update":
+        handleExeUpdate(data);
         break;
 
       default:
@@ -1608,9 +1738,10 @@
     addUserBubble(trimmed || "(archivo adjunto)");
     const requestId = Date.now() + "-" + Math.random().toString(36).slice(2, 8);
     state.activeReqIds.add(requestId);
+    state.pendingConv[requestId] = state.currentConversationId;
+    const sel = document.getElementById("modelSelector");
+    const xens_model = sel ? sel.value : "auto";
     startAssistantBubble(requestId);
-
-    // Persistencia ANTES de enviar: la conversación y el mensaje del
     // usuario deben existir antes de que el motor pueda responder,
     // o la respuesta ("done") no tendría conversación donde guardarse.
     await persistUserMessage(trimmed || "(archivo adjunto)");
@@ -1634,6 +1765,7 @@
       requestId,
       uid: state.user ? state.user.uid : null,
       attachments,
+      xens_model,
     });
 
     if (!ok) {
@@ -1756,6 +1888,60 @@
 
   el.newChatBtn.addEventListener("click", clearConversation);
 
+  // ---- sidebar colapsable + buscar icono + papelera colapsable ----
+  (function () {
+    const appEl = document.querySelector(".app");
+    const sidebar = document.getElementById("sidebar");
+    const toggleBtn = document.getElementById("sidebarToggle");
+    const searchToggle = document.getElementById("searchToggle");
+    const trashToggle = document.getElementById("trashToggle");
+    const trashSection = document.getElementById("trashSection");
+    if (!appEl || !sidebar) return;
+    function applyCollapsed(v) {
+      appEl.classList.toggle("sidebar-collapsed", v);
+      try { localStorage.setItem("xens.sidebar.collapsed", v ? "1" : "0"); } catch {}
+    }
+    function applyTrashCollapsed(v) {
+      if (!trashSection) return;
+      trashSection.classList.toggle("collapsed", v);
+      if (trashToggle) trashToggle.setAttribute("aria-expanded", v ? "false" : "true");
+      try { localStorage.setItem("xens.trash.collapsed", v ? "1" : "0"); } catch {}
+    }
+    try {
+      if (localStorage.getItem("xens.sidebar.collapsed") === "1") applyCollapsed(true);
+      if (localStorage.getItem("xens.trash.collapsed") === "1") applyTrashCollapsed(true);
+    } catch {}
+    // model selector persist + tier filter
+    (function(){
+      const sel=document.getElementById("modelSelector");
+      if(!sel) return;
+      try{ const v=localStorage.getItem("xens.model"); if(v) sel.value=v; }catch{}
+      sel.addEventListener("change", ()=>{ try{localStorage.setItem("xens.model", sel.value);}catch{} });
+      window.XensUpdateModelSelector = function(plan){
+        const tiers={free:["auto","Flash","Core"], lite:["auto","Flash","Core","Vision"], pro:["auto","Flash","Core","Think","Code","Vision"], premium:["auto","Flash","Core","Think","Code","Vision","Ultra"]};
+        // Beta interna: modelos siempre los del Free.
+        const allowed=new Set(state.beta ? tiers.free : (tiers[plan]||tiers.free));
+        Array.from(sel.options).forEach(o=>{ o.disabled=!allowed.has(o.value); if(o.disabled && sel.value===o.value) sel.value="auto"; });
+      };
+      // init
+      try{ window.XensUpdateModelSelector(state.plan); }catch{}
+    })();
+    // Beta plan selector (Configuración → Plan y uso)
+    (function(){
+      const bsel=document.getElementById("betaPlanSelector");
+      if(!bsel) return;
+      bsel.addEventListener("change", ()=>{
+        sendToServer({type:"set_beta_plan", plan: bsel.value});
+      });
+    })();
+    if (toggleBtn) toggleBtn.addEventListener("click", () => applyCollapsed(!appEl.classList.contains("sidebar-collapsed")));
+    if (searchToggle) searchToggle.addEventListener("click", () => {
+      if (appEl.classList.contains("sidebar-collapsed")) applyCollapsed(false);
+      setTimeout(() => { const inp = document.getElementById("searchInput"); if (inp) inp.focus(); }, 50);
+    });
+    if (trashToggle) trashToggle.addEventListener("click", () => applyTrashCollapsed(!trashSection.classList.contains("collapsed")));
+  })();
+
   el.upgradeBtn.addEventListener("click", () => {
     if (window.XensAnalytics) window.XensAnalytics.track("upgrade_click", { from: "sidebar" });
     if (state.account) {
@@ -1805,6 +1991,10 @@
       }
       if (profile.plan) {
         state.plan = profile.plan;
+        state.beta = !!profile.beta;
+        state.betaPlan = profile.beta_plan || "";
+        const bsel = document.getElementById("betaPlanSelector");
+        if (bsel) bsel.value = state.betaPlan;
         updateUsageUI();
         if (limitReached()) lockComposer();
       }
@@ -2109,6 +2299,7 @@
   }
 
   function init() {
+    if (!state.conversationStarted) document.querySelector(".main")?.classList.add("composer-centered");
     updateUsageUI();
     connectSocket();
     loadProfile();
@@ -2117,7 +2308,8 @@
 
     if (window.XensAuth) {
       window.XensAuth.onChange((user) => {
-        if (!user || state.user) return; // session.js redirige si no hay user
+        if (!user) return;
+        if (state.user && state.user.uid === user.uid) return;
         setupUserData(user);
       });
     }

@@ -78,9 +78,12 @@ def update_via_git() -> str:
         r = subprocess.run(["git", "pull", "--ff-only"],
                            cwd=str(_APP_DIR), capture_output=True, text=True, timeout=30)
         if r.returncode == 0:
-            new_version = _detect_version_after_pull()
-            if new_version:
-                _write_version(new_version)
+            # Solo re-sellar version.txt si el pull trajo cambios de verdad;
+            # si no, pisaría versiones beta/manual con el hash de git.
+            if "Already up to date" not in (r.stdout or ""):
+                new_version = _detect_version_after_pull()
+                if new_version:
+                    _write_version(new_version)
             return f"OK: {r.stdout[:200]}"
         return f"Error: {r.stderr[:200]}"
     except subprocess.TimeoutExpired:
@@ -153,6 +156,125 @@ async def auto_update_zip() -> str:
         return f"Up to date ({info.get('current_version', '?')})"
     logger.info(f"Update found: {info.get('version')} (current: {info.get('current_version')})")
     return await download_and_apply(info.get("sha256", ""), info.get("filename", "xens-latest.zip"))
+
+
+# ── EXE update (beta): descarga + swap al reiniciar ────────────────────
+# El feed version.json puede traer:
+#   {"version": "...", "exe": {"version": "...", "file": "Xens-beta.exe", "sha256": "..."}}
+# Windows no deja sobrescribir un exe en ejecución: se descarga como
+# <exe>.new.exe y un .bat lo intercambia al salir (patrón clásico).
+
+def _exe_path() -> Optional[Path]:
+    if not getattr(sys, "frozen", False):
+        return None
+    try:
+        return Path(sys.executable).resolve()
+    except Exception:
+        return None
+
+
+async def check_exe_update() -> dict:
+    """Compara el exe congelado con el feed. Solo tiene sentido en frozen."""
+    current = _read_version()
+    out = {"exe_update": False, "current_version": current,
+           "exe_version": "", "exe_file": "", "exe_bytes": 0}
+    exe = _exe_path()
+    if exe is None:
+        out["note"] = "not frozen (dev)"
+        return out
+    if not _UPDATE_URL:
+        out["error"] = "No update URL configured"
+        return out
+    try:
+        from ..core.utils import get_http_client
+        r = await get_http_client().get(
+            f"{_UPDATE_URL.rstrip('/')}/version.json?_t={int(time.time())}", timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        meta = data.get("exe") or {}
+        ver = str(meta.get("version") or "")
+        out["exe_version"] = ver
+        out["exe_file"] = str(meta.get("file") or "")
+        out["exe_sha256"] = str(meta.get("sha256") or "")
+        out["exe_parts"] = list(meta.get("parts") or [])
+        out["exe_bytes"] = int(meta.get("bytes") or 0)
+        staged = exe.parent / (exe.name + ".new.exe")
+        out["staged"] = staged.exists()
+        out["exe_update"] = bool(ver) and ver != current and not staged.exists()
+        return out
+    except Exception as e:
+        out["error"] = str(e)
+        return out
+
+
+async def download_exe_update(url_path: str = "", sha256: str = "") -> dict:
+    """Descarga el exe nuevo como <exe>.new.exe (verifica sha256)."""
+    exe = _exe_path()
+    if exe is None:
+        return {"ok": False, "error": "not frozen (dev)"}
+    if not _UPDATE_URL:
+        return {"ok": False, "error": "No update URL configured"}
+    try:
+        from ..core.utils import get_http_client
+        info = await check_exe_update()
+        if info.get("error"):
+            return {"ok": False, "error": info["error"]}
+        filename = url_path or info.get("exe_file") or ""
+        want_sha = sha256 or info.get("exe_sha256") or ""
+        if not filename:
+            return {"ok": False, "error": "Feed sin exe para esta versión"}
+        parts = info.get("exe_parts") or [filename]
+        blobs = []
+        for part in parts:
+            url = f"{_UPDATE_URL.rstrip('/')}/{part}?_t={int(time.time())}"
+            logger.info(f"Downloading exe update part {part}...")
+            r = await get_http_client().get(url, timeout=600)
+            r.raise_for_status()
+            blobs.append(r.content)
+        content = b"".join(blobs)
+        if want_sha:
+            import hashlib
+            actual = hashlib.sha256(content).hexdigest()
+            if actual.lower() != want_sha.lower():
+                return {"ok": False, "error": "Checksum mismatch en el exe"}
+        staged = exe.parent / (exe.name + ".new.exe")
+        staged.write_bytes(content)
+        return {"ok": True, "staged": str(staged), "bytes": len(content)}
+    except Exception as e:
+        return {"ok": False, "error": f"Download failed: {e}"}
+
+
+def stage_exe_swap_and_exit() -> str:
+    """Crea el .bat que intercambia el exe al salir y termina el proceso.
+
+    Uso: tras download_exe_update OK, la UI pide reiniciar → el servidor
+    llama aquí: genera _update_swap.bat, lo lanza detached y hace os._exit.
+    El .bat espera que el exe se libere, mueve .new.exe sobre el exe,
+    relanza y se autoborra.
+    """
+    import subprocess
+    exe = _exe_path()
+    if exe is None:
+        return "not frozen (dev)"
+    staged = exe.parent / (exe.name + ".new.exe")
+    if not staged.exists():
+        return "no staged update"
+    bat = exe.parent / "_update_swap.bat"
+    bat.write_text(
+        "@echo off\r\n"
+        "timeout /t 2 /nobreak >nul\r\n"
+        f'move /Y "{staged}" "{exe}" >nul\r\n'
+        f'start "" "{exe}" --app\r\n'
+        'del "%~f0"\r\n',
+        encoding="utf-8",
+    )
+    try:
+        subprocess.Popen(["cmd", "/c", str(bat)], cwd=str(exe.parent),
+                         creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+    except Exception:
+        subprocess.Popen(["cmd", "/c", str(bat)], cwd=str(exe.parent))
+    logger.info("Swap de exe programado; saliendo para aplicar")
+    os._exit(0)
 
 
 def _apply_zip(content: bytes) -> str:

@@ -3,3 +3,4 @@ httpx
 comtypes
 pyjwt
 cryptography
+pywebview

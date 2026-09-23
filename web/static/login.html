@@ -63,18 +63,32 @@
       </div>
 
       <p class="auth-error" id="authError"></p>
+      <div class="auth-divider">o</div>
+      <a href="index.html" class="btn btn-ghost btn-block">Continuar sin cuenta (plan Free)</a>
       <p class="auth-footnote">Al continuar aceptas los <a href="terms.html">Términos</a> y la <a href="privacy.html">Privacidad</a> de XENS.</p>
     </div>
   </div>
 
-  <!-- Modo local primero: sin Firebase, la identidad es la máquina
-       (local-auth.js expone window.XensAuth con la misma API).
-       Si firebase-config.js existe, se carga Firebase y auth.js
-       sobrescribe XensAuth con autenticación real. -->
+  <!-- Modo local primero: sin Supabase config, la identidad es la máquina
+       (local-auth.js). Si supabase-config.js existe, supabase-auth.js
+       sobrescribe XensAuth con Supabase Auth. Firebase legacy aún
+       soportado si firebase-config.js existe. -->
   <script src="local-auth.js"></script>
+  <script src="supabase-config.js" onerror="window.__NO_SUPABASE__ = true"></script>
   <script src="firebase-config.js" onerror="window.__NO_FIREBASE__ = true"></script>
   <script>
     (function () {
+      if (!window.__NO_SUPABASE__ && window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.url) {
+        var s1 = document.createElement("script");
+        s1.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js";
+        s1.onload = function () {
+          var s = document.createElement("script");
+          s.src = "supabase-auth.js";
+          document.body.appendChild(s);
+        };
+        document.head.appendChild(s1);
+        return;
+      }
       if (window.__NO_FIREBASE__ || !window.FIREBASE_CONFIG) return;
       var urls = [
         "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js",

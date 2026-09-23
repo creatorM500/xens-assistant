@@ -147,16 +147,37 @@ def _last_user_text(messages) -> str:
     return ""
 
 async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
-                        charge=True, tool_names=None, agent_name=None):
+                        charge=True, tool_names=None, agent_name=None, xens_model=None,
+                        provider=None, account_token=""):
     """Bucle principal orquestador->modelo->tools.
 
     - uid + charge: descuenta Xens Credits con los tokens reales de cada
       llamada LLM (modelo elegido por core.model_router según la tarea).
     - tool_names: restringe el conjunto de tools (sub-agentes).
+    - account_token: JWT Supabase del usuario; si viene, el LLM va por el
+      edge con su cuenta (sin serial ni keys locales).
     """
-    provider = get_provider()
+    if not account_token:
+        # Sub-agentes heredan el token por contextvar.
+        try:
+            account_token = (charge_ctx.get() or {}).get("token") or ""
+        except Exception:
+            account_token = ""
+    if provider is None and account_token:
+        try:
+            from ..core import license as _lic
+            from ..llm.remote import RemoteProvider
+            provider = RemoteProvider(_lic.get_server_url_with_default(), account_token)
+        except Exception as e:
+            logger.warning(f"Account edge provider failed, fallback local: {e}")
+            provider = None
+    if provider is None:
+        provider = get_provider()
 
-    if uid and charge:
+    # Beta interna: créditos/tools del plan elegido, modelos siempre Free.
+    tier = tier_config.effective_tier(tier or "free")
+
+    if charge and (uid or tier_config.is_beta()):
         allowed, remaining, limit, reset_sec = credits.check(tier, uid=uid)
         if not allowed:
             msg = (
@@ -167,7 +188,7 @@ async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
             yield {"type": "error", "content": f"\n[Sin créditos: {msg}]"}
             messages.append({"role": "system", "content": f"[SIN CREDITOS: {msg}]"})
             return
-        charge_ctx.set({"uid": uid, "tier": tier})
+        charge_ctx.set({"uid": uid, "tier": tier, "token": account_token})
         session_ctx.set(copy.deepcopy(messages))
 
     prefix = f"[{agent_name}] " if agent_name else ""
@@ -182,7 +203,10 @@ async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
                                  escalate=consecutive_errors)
 
         try:
-            result = await provider.chat(llm_messages, tools=tools, tier=tier, models=candidates)
+            kwargs = {}
+            if xens_model and str(xens_model).lower() != "auto":
+                kwargs["xens_model"] = xens_model
+            result = await provider.chat(llm_messages, tools=tools, tier=tier, models=candidates, **kwargs)
         except Exception as e:
             consecutive_errors += 1
             logger.error(f"LLM chat error: {e}")
@@ -196,7 +220,7 @@ async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
         else:
             consecutive_errors = 0
 
-        if uid and charge:
+        if charge and (uid or tier_config.is_beta()):
             model_used = result.model or (candidates[0].get("model", "") if candidates else "")
             credits.spend(tier, uid, usage=result.usage, model=model_used)
 
@@ -301,11 +325,14 @@ async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
     candidates = pick_models(tier, _last_user_text(messages), len(messages),
                              escalate=consecutive_errors)
     streamed = []
-    async for chunk in provider.chat_stream(_to_llm_messages(messages), tier=tier, models=candidates):
+    s_kwargs = {}
+    if xens_model and str(xens_model).lower() != "auto":
+        s_kwargs["xens_model"] = xens_model
+    async for chunk in provider.chat_stream(_to_llm_messages(messages), tier=tier, models=candidates, **s_kwargs):
         yield {"type": "content", "content": prefix + chunk}
         streamed.append(chunk)
 
-    if uid and charge:
+    if charge and (uid or tier_config.is_beta()):
         model_used = candidates[0].get("model", "") if candidates else ""
         prompt_tokens = await provider.count_tokens(json.dumps(messages, ensure_ascii=False))
         completion_tokens = await provider.count_tokens("".join(streamed))

@@ -22,5 +22,16 @@ server/data/
 # OS
 Thumbs.db
 Desktop.ini 
-# Update artifacts 
+# Update artifacts
 _update_build/
+# Tauri / Node
+node_modules/
+src-tauri/target/
+src-tauri/binaries/Xens*
+src-tauri/gen/
+# Supabase CLI estado local (no es código)
+supabase/.temp/
+# Logs de crash del usuario (máquina local)
+*.log
+# Portable de distribución (se entrega por Storage, no git)
+dist-portable/

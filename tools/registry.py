@@ -30,7 +30,7 @@ def _save_tier_map(tier_map: dict):
         logger.warning(f"Failed to save tier map: {e}")
 
 
-TIERS = {"free", "pro", "premium"}
+TIERS = {"free", "lite", "pro", "premium"}
 DEFAULT_TIER = "free"
 
 

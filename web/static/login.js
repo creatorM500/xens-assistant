@@ -43,8 +43,11 @@
 
   function showError(err) {
     const code = err && err.code;
+    const msg = err && err.message ? String(err.message) : "";
     errorBox.style.color = "var(--red)";
-    errorBox.textContent = ERROR_MESSAGES[code] || "Ocurrió un error. Inténtalo de nuevo.";
+    if (msg && !ERROR_MESSAGES[code]) errorBox.textContent = msg;
+    else errorBox.textContent = ERROR_MESSAGES[code] || msg || "Ocurrió un error. Inténtalo de nuevo.";
+    console.error("Auth error:", err);
   }
 
   function clearError() {
@@ -143,10 +146,17 @@
     }
   });
 
-  /* ---- si ya hay sesión activa, saltar directo al chat ---- */
+  /* ---- si ya hay sesión real (Supabase), saltar al chat; en modo local no redirigir ---- */
   if (window.XensAuth) {
     window.XensAuth.onChange((user) => {
-      if (user) window.location.href = "index.html";
+      if (!user) return;
+      const isLocal = String(user.uid||"").startsWith("local-");
+      const hasSupabase = !!window.SUPABASE_CONFIG;
+      if (!isLocal || !hasSupabase) {
+        // solo auto-redirect si es usuario real o si no hay Supabase (modo local ya está en chat)
+        // pero en login.html con Supabase configurado, no redirigir local-trial para permitir login real
+        if (!isLocal) window.location.href = "index.html";
+      }
     });
   }
   }

@@ -8,6 +8,10 @@ logger = logging.getLogger("xens.router")
 # Roles de costo por modelo. El router elige el orden barato -> capaz según
 # la clase de tarea, para que una tarea sencilla nunca pague un modelo caro.
 MODEL_ROLES = {
+    "mistral-nemo": "cheap",
+    "mistralai/mistral-nemo": "cheap",
+    "qwen-2.5-coder-32b-instruct": "specialized",
+    "qwen/qwen-2.5-coder-32b-instruct": "specialized",
     "deepseek-chat": "cheap",
     "mistral-medium-latest": "medium",
     "mistral-medium": "medium",
@@ -70,7 +74,7 @@ def pick(tier: str, text: str, message_count: int = 0, escalate: int = 0) -> lis
     elif escalate == 1 and cls == "chat":
         cls = "assistant"
 
-    entries = tier_config.get_models(tier)
+    entries = tier_config.get_models(tier_config.models_tier(tier))
     order = ROLE_ORDER.get(cls, ROLE_ORDER["assistant"])
 
     def rank(entry) -> int:

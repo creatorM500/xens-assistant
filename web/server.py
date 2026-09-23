@@ -9,7 +9,7 @@ from ..core.llm import run_tool_loop, reset_provider
 from ..core import dependencies as deps
 from ..core import license as lic
 from ..core.credits import credits
-from ..core.firebase_auth import firebase_auth
+from ..core.supabase_auth import supabase_auth as firebase_auth  # compat alias; real es supabase_auth
 from ..core.tasks import task_manager
 from ..core.triggers import trigger_manager
 from ..core.tier_config import tier_config
@@ -21,6 +21,33 @@ from ..tools.registry import registry
 
 logger = logging.getLogger("xens.web")
 HERE = Path(__file__).parent
+
+
+def _static_dir() -> Path:
+    """Carpeta web/static en fuente y en exe congelado.
+
+    En el bundle PyInstaller el código corre como
+    ``_MEIPASS/xens_assistant/web/server.py`` mientras que los datas
+    pueden haber quedado en ``_MEIPASS/web/static`` o en
+    ``_MEIPASS/xens_assistant/web/static`` según el spec usado.
+    Se prueban todas antes de rendirse (sin static no hay UI).
+    """
+    candidates = [HERE / "static"]
+    try:
+        import sys
+        base = getattr(sys, "_MEIPASS", None)
+        if base:
+            base = Path(base)
+            candidates += [
+                base / "xens_assistant" / "web" / "static",
+                base / "web" / "static",
+            ]
+    except Exception:
+        pass
+    for c in candidates:
+        if c.is_dir():
+            return c
+    return candidates[0]
 
 
 class WebServer:
@@ -126,8 +153,11 @@ class WebServer:
                     try:
                         if data.get("type") == "auth":
                             token = data.get("token")
-                            claims = await firebase_auth.verify(token) if token else None
+                            claims = await firebase_auth.verify(token) if token else None  # supabase JWT HS256
                             if claims:
+                                # Se guarda el token Supabase: con cuenta, el LLM va
+                                # por el edge (sin serial ni keys locales).
+                                claims["_token"] = token
                                 acct_state["account"] = claims
                                 uid = str(claims.get("uid") or "")
                                 self._connected_uids.add(uid)
@@ -162,9 +192,10 @@ class WebServer:
 
                             # Gate de créditos (cuenta) o licencia (local):
                             # se valida ANTES de despachar el task.
+                            # Beta: el plan elegido en Configuración manda.
                             if account:
                                 uid = str(account.get("uid") or "")
-                                tier = account.get("tier") or "free"
+                                tier = tier_config.effective_tier(account.get("tier") or "free")
                                 allowed, remaining, limit, reset_sec = credits.check(tier=tier, uid=uid)
                                 if not allowed:
                                     await send({
@@ -179,14 +210,33 @@ class WebServer:
                                     await send({"type": "done", "requestId": request_id or None})
                                     continue
                             else:
-                                gate = await asyncio.to_thread(lic.gate_status)
-                                if not gate["allowed"]:
-                                    await send({"type": "license", "state": gate["state"]})
-                                    await send({"type": "done", "requestId": request_id or None})
-                                    continue
-                                if gate["reason"] == "trial":
-                                    await asyncio.to_thread(lic.record_trial_use)
-                                await asyncio.to_thread(profile.record_interaction)
+                                beta = tier_config.get_beta_plan()
+                                if beta:
+                                    # Beta interna: créditos del plan elegido (ledger local),
+                                    # modelos siempre Free. Sin trial de licencia.
+                                    allowed, remaining, limit, reset_sec = await asyncio.to_thread(
+                                        credits.check, beta, None, 1)
+                                    if not allowed:
+                                        await send({
+                                            "type": "error",
+                                            "requestId": request_id or None,
+                                            "content": (
+                                                f"Agotaste los Xens Credits beta de tu plan "
+                                                f"({limit} al mes). Se renuevan el 1º de cada mes."
+                                            ),
+                                        })
+                                        await send({"type": "done", "requestId": request_id or None})
+                                        continue
+                                    await asyncio.to_thread(profile.record_interaction)
+                                else:
+                                    gate = await asyncio.to_thread(lic.gate_status)
+                                    if not gate["allowed"]:
+                                        await send({"type": "license", "state": gate["state"]})
+                                        await send({"type": "done", "requestId": request_id or None})
+                                        continue
+                                    if gate["reason"] == "trial":
+                                        await asyncio.to_thread(lic.record_trial_use)
+                                    await asyncio.to_thread(profile.record_interaction)
 
                             # Rehacer/editar: se aplica sobre la sesión bajo lock
                             # antes de tomar el snapshot.
@@ -199,8 +249,9 @@ class WebServer:
 
                             # La respuesta corre en su propio task: la
                             # conversación no se bloquea con la ejecución.
+                            xens_model = data.get("xens_model") or data.get("model") or "auto"
                             asyncio.ensure_future(self._run_response(
-                                ws, send, session, acct_state, text, request_id,
+                                ws, send, session, acct_state, text, request_id, xens_model,
                             ))
                             continue
 
@@ -250,6 +301,44 @@ class WebServer:
                             reset_provider()
                             await send({"type": "license", "state": lic.get_state(), "result": {"success": True, "status": "deactivated"}})
 
+                        elif data.get("type") == "set_beta_plan":
+                            # Beta interna: cualquiera elige plan en Configuración.
+                            # Créditos/tools del plan, modelos siempre Free.
+                            plan = str(data.get("plan") or "").strip().lower()
+                            try:
+                                beta = await asyncio.to_thread(tier_config.set_beta_plan, plan)
+                                base = lic.get_state().get("tier") or "free"
+                                registry.set_tier(beta or base)
+                                reset_provider()
+                                await send({"type": "beta_plan", "beta_plan": beta,
+                                            "plan": tier_config.effective_tier(base),
+                                            "models": tier_config.aliases_for_tier("free")})
+                            except ValueError as e:
+                                await send({"type": "beta_plan", "error": str(e),
+                                            "beta_plan": tier_config.get_beta_plan()})
+
+                        elif data.get("type") == "get_beta_plan":
+                            await send({"type": "beta_plan", "beta_plan": tier_config.get_beta_plan(),
+                                        "models": tier_config.aliases_for_tier("free")})
+
+                        elif data.get("type") == "check_exe_update":
+                            from ..core.updater import check_exe_update
+                            info = await check_exe_update()
+                            info["type"] = "exe_update"
+                            await send(info)
+
+                        elif data.get("type") == "download_exe_update":
+                            from ..core.updater import download_exe_update
+                            res = await download_exe_update()
+                            await send({"type": "exe_update", "downloaded": bool(res.get("ok")),
+                                        "error": res.get("error", ""), "bytes": res.get("bytes", 0)})
+
+                        elif data.get("type") == "restart_for_exe_update":
+                            from ..core.updater import stage_exe_swap_and_exit
+                            await send({"type": "exe_update", "restarting": True})
+                            await asyncio.sleep(0.5)
+                            await asyncio.to_thread(stage_exe_swap_and_exit)
+
                     except Exception as e:
                         logger.exception("WS handler error")
                         try:
@@ -270,20 +359,21 @@ class WebServer:
 
         return ws
 
-    async def _run_response(self, ws, send, session, acct_state, text, request_id):
+    async def _run_response(self, ws, send, session, acct_state, text, request_id, xens_model="auto", origin_conv_id=None):
         """Task de respuesta para UN mensaje: snapshot aislado del contexto,
         ejecución concurrente, y escritura ordenada en la sesión."""
         try:
             account = acct_state.get("account")
-            tier = account.get("tier") if account else registry.get_tier()
+            tier = tier_config.effective_tier(account.get("tier") if account else registry.get_tier())
             uid = str(account.get("uid") or "") if account else None
+            account_token = (account.get("_token") or "") if account else ""
 
             async with self._session_lock:
                 epoch = self._session_epoch
                 messages = copy.deepcopy(self._build_messages(session, uid))
 
             full = ""
-            async for chunk in run_tool_loop(messages, tier=tier, uid=uid):
+            async for chunk in run_tool_loop(messages, tier=tier, uid=uid, xens_model=xens_model, account_token=account_token):
                 if isinstance(chunk, dict):
                     chunk["requestId"] = request_id or None
                     await send(chunk)
@@ -333,7 +423,7 @@ class WebServer:
             pass
 
     async def _handle_index(self, request):
-        index_path = HERE / "static" / "index.html"
+        index_path = _static_dir() / "index.html"
         if index_path.exists():
             return web.Response(
                 text=index_path.read_text(encoding="utf-8"),
@@ -348,9 +438,10 @@ class WebServer:
         account = await firebase_auth.account_from_authorization(
             request.headers.get("Authorization")
         )
+        beta = tier_config.get_beta_plan()
         if account:
             uid = str(account.get("uid") or "")
-            tier = account.get("tier") or "free"
+            tier = tier_config.effective_tier(account.get("tier") or "free")
             used, credit_limit = credits.get_usage(tier=tier, uid=uid)
             lic_state = lic.get_state()
             return web.json_response({
@@ -364,11 +455,14 @@ class WebServer:
                 "creditsLimit": credit_limit,
                 "creditsResetAt": credits._seconds_until_reset(),
                 "plan": tier,
+                "beta": bool(beta),
+                "beta_plan": beta,
+                "beta_models": tier_config.aliases_for_tier("free") if beta else [],
                 "license": lic_state,
             })
         profile.load()
         lic_state = lic.get_state()
-        tier = lic_state.get("tier") or "free"
+        tier = tier_config.effective_tier(lic_state.get("tier") or "free")
         # El tier FREE ES la prueba gratuita: un solo contador (trial),
         # no dos números distintos en pantalla.
         if tier == "free":
@@ -377,6 +471,8 @@ class WebServer:
         else:
             message_limit = 999999
             message_count = profile.interaction_count
+        if beta:
+            used_b, limit_b = credits.get_usage(tier=tier, uid=None)
         return web.json_response({
             "account": False,
             "name": profile.name or "",
@@ -384,8 +480,13 @@ class WebServer:
             "interactions": profile.interaction_count,
             "messageCount": message_count,
             "messageLimit": message_limit,
-            "credits": None,
+            "credits": (max(0, limit_b - used_b) if beta else None),
+            "creditsUsed": (used_b if beta else None),
+            "creditsLimit": (limit_b if beta else None),
             "plan": tier,
+            "beta": bool(beta),
+            "beta_plan": beta,
+            "beta_models": tier_config.aliases_for_tier("free") if beta else [],
             "license": lic_state,
         })
 
@@ -420,10 +521,20 @@ class WebServer:
         self._app.router.add_get("/api/deps", self._handle_api_deps)
         self._app.router.add_post("/api/deps/install", self._handle_api_deps_install)
         self._app.router.add_get("/api/version", self._handle_api_version)
-        self._app.router.add_static("/", HERE / "static", show_index=False)
+        static_dir = _static_dir()
+        if not static_dir.is_dir():
+            logger.warning("Web static dir missing (%s); UI servida sin estáticos", static_dir)
+        else:
+            self._app.router.add_static("/", static_dir, show_index=False)
 
         st = lic.get_state()
-        if st["status"] in ("licensed", "unlocked"):
+        beta = tier_config.get_beta_plan()
+        if beta:
+            try:
+                registry.set_tier(beta)
+            except ValueError:
+                pass
+        elif st["status"] in ("licensed", "unlocked"):
             try:
                 registry.set_tier(st.get("tier") or "free")
             except ValueError:

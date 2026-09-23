@@ -1,27 +1,8 @@
 /**
  * Xens license edge function — Codex-style licensing + LLM proxy.
- *
- * Contract implemented by the client (llm/remote.py -> RemoteProvider):
- *   POST /api/activate   {"serial"}                                -> 200 {"token","tier","expires_at"}
- *   GET  /api/me         Authorization: Bearer <token>             -> 200 {"tier","expires_at"}
- *   POST /api/chat       Authorization: Bearer <token>
- *                        {"messages","tools","tier"}               -> 200 {"content","tool_calls","model"}
- *   POST /api/deactivate {"serial","device_id?"}                   -> 200 {"status":"ok",...}
- *
- * AI dispatch:
- *   free                -> Mistral directo (api.mistral.ai, mistral-small-2506)
- *   pro / premium       -> OpenRouter (openrouter.ai, mistralai/mistral-large-latest)
- *
- * Secrets (supabase secrets set --env XENS):
- *   XENS_TOKEN_SECRET     firma de los tokens de sesion (JWT HS256)
- *   XENS_MISTRAL_KEY      clave directa de Mistral (tier free)
- *   XENS_OPENROUTER_KEY   clave de OpenRouter (tiers pro/premium)
- *   XENS_FREE_CHAT_CAP    tope de chats/mes en tier free (default 300)
- * (SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY las inyecta la plataforma)
+ * Credits 5k/15k/35k/125k, Lite tier, fallbacks, stream & credits endpoints.
  */
-
 const enc = new TextEncoder();
-
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const TOKEN_SECRET = Deno.env.get("XENS_TOKEN_SECRET") ?? "xens-edge-token-secret";
@@ -29,11 +10,30 @@ const MISTRAL_KEY = Deno.env.get("XENS_MISTRAL_KEY") ?? "";
 const OPENROUTER_KEY = Deno.env.get("XENS_OPENROUTER_KEY") ?? "";
 const FREE_CHAT_CAP = parseInt(Deno.env.get("XENS_FREE_CHAT_CAP") ?? "300", 10) || 300;
 
-const DEFAULT_MODELS = {
-  free: "mistral-small-2506",
-  pro: "mistralai/mistral-large",
-  premium: "anthropic/claude-sonnet-5",
+const TIER_CREDITS: Record<string, number> = { free: 5000, lite: 15000, pro: 35000, premium: 125000 };
+
+// Facturación unificada: todo por OpenRouter (un solo pago).
+// MISTRAL_KEY queda solo como último recurso si OpenRouter cae.
+const XENS_ALIAS_MAP: Record<string, {provider:string, model:string}> = {
+  Flash: {provider:"openrouter", model:"mistralai/mistral-nemo"},
+  Core: {provider:"openrouter", model:"deepseek/deepseek-chat"},
+  Think: {provider:"openrouter", model:"deepseek/deepseek-r1"},
+  Code: {provider:"openrouter", model:"qwen/qwen-2.5-coder-32b-instruct"},
+  Vision: {provider:"openrouter", model:"google/gemini-2.0-flash-001"},
+  Ultra: {provider:"openrouter", model:"anthropic/claude-sonnet-4"},
 };
+const DEFAULT_MODELS: Record<string, string> = {
+  free: "mistralai/mistral-nemo",
+  lite: "mistralai/mistral-nemo",
+  pro: "deepseek/deepseek-chat",
+  premium: "anthropic/claude-sonnet-4",
+};
+const FREE_FALLBACKS = [
+  "z-ai/glm-5.2:free",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "google/gemma-4-31b-it:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+];
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -42,256 +42,243 @@ const CORS = {
 };
 
 function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json", ...CORS },
-  });
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...CORS } });
+}
+function b64u(b: Uint8Array): string { return btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
+function b64uDecode(s: string): Uint8Array { let t = s.replace(/-/g, "+").replace(/_/g, "/"); while (t.length % 4) t += "="; const bin = atob(t); const out = new Uint8Array(bin.length); for (let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i); return out; }
+async function hmacSign(data: string): Promise<Uint8Array> { const key = await crypto.subtle.importKey("raw", enc.encode(TOKEN_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]); return new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(data))); }
+async function makeToken(payload: Record<string, unknown>): Promise<string> { const h=b64u(enc.encode(JSON.stringify({alg:"HS256",typ:"JWT"}))); const p=b64u(enc.encode(JSON.stringify(payload))); const sig=b64u(await hmacSign(`${h}.${p}`)); return `${h}.${p}.${sig}`; }
+async function verifyToken(token: string): Promise<Record<string, unknown>|null> { try{ const [h,p,s]=token.split("."); if(!h||!p||!s) return null; if(b64u(await hmacSign(`${h}.${p}`))!==s) return null; const payload=JSON.parse(new TextDecoder().decode(b64uDecode(p))); if(typeof payload.exp==="number" && payload.exp*1000<Date.now()) return null; return payload; }catch{ return null; } }
+
+function sbHeaders(): Record<string,string>{ return { apikey: SERVICE_ROLE, authorization: `Bearer ${SERVICE_ROLE}`, "content-type":"application/json" }; }
+async function rpc(name:string,args:Record<string,unknown>): Promise<{status:number;data:any}>{ const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`,{method:"POST",headers:{...sbHeaders(),prefer:"return=representation"},body:JSON.stringify(args)}); return {status:r.status,data:await r.json().catch(()=>null)}; }
+async function fetchLicense(serial:string):Promise<any>{ const r=await fetch(`${SUPABASE_URL}/rest/v1/licenses?select=id,tier,revoked,expires_at&key=eq.${encodeURIComponent(serial)}&limit=1`,{headers:sbHeaders()}); const rows=await r.json().catch(()=>null); return Array.isArray(rows)?(rows[0]??null):null; }
+async function fetchUsage(licenseId:string,period:string):Promise<any>{ const r=await fetch(`${SUPABASE_URL}/rest/v1/usage?select=chats&license_id=eq.${licenseId}&period=eq.${period}&limit=1`,{headers:sbHeaders()}); const rows=await r.json().catch(()=>null); return Array.isArray(rows)?(rows[0]??null):null; }
+
+async function handleActivate(req: Request, body:any): Promise<Response>{
+  const serial=String(body?.serial??"").trim().toUpperCase(); if(!serial) return json(400,{error:"serial required"});
+  const device=await deviceFingerprint(req);
+  const {status,data}=await rpc("activate_license",{p_key:serial,p_device_id:device,p_machine_id:device});
+  if(status!==200||!data||data.error) return json(401,{error:data?.error??"Activation rejected"});
+  const tier=String(data.tier??"free").toLowerCase(); const exp=Number(data.expires_at??0);
+  const token=await makeToken({sub:serial,tier,exp:exp||Math.floor(Date.now()/1000)+365*86400,iss:"xens",iat:Math.floor(Date.now()/1000)});
+  return json(200,{token,tier,expires_at:exp||undefined});
+}
+async function handleMe(auth:string): Promise<Response>{ const payload=await requireAuth(auth); if(payload instanceof Response) return payload; return json(200,{tier:String(payload.tier??"free").toLowerCase(),expires_at:Number(payload.exp??0),online:true}); }
+async function handleProvisionFree(req: Request, body:any): Promise<Response>{
+  // Cero-config para el consumidor: crea (o reutiliza) la licencia Free
+  // lifetime de esta máquina. Sin serial, sin API keys.
+  const device=await deviceFingerprint(req);
+  const machine=String(body?.machine_id??"").trim().slice(0,64);
+  const {status,data}=await rpc("provision_free_license",{p_device_id:device,p_machine_id:machine||device});
+  if(status!==200||!data||data.error) return json(429,{error:data?.error??"Provision rejected"});
+  const serial=String(data.key??"");
+  if(!serial) return json(500,{error:"Provision failed"});
+  const tier=String(data.tier??"free").toLowerCase();
+  const exp=Number(data.expires_at??0);
+  const token=await makeToken({sub:serial,tier,exp:exp||Math.floor(Date.now()/1000)+365*86400*100,iss:"xens",iat:Math.floor(Date.now()/1000)});
+  return json(200,{token,tier,expires_at:exp||undefined,provisioned:true});
 }
 
-// ---- JWT HS256 con WebCrypto (sin dependencias) ---------------------------
-function b64u(b: Uint8Array): string {
-  return btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function handleCreditsCheck(body:any): Promise<Response>{
+  const uid=String(body?.uid??"").trim(); const tier=String(body?.tier??"free").toLowerCase();
+  if(!uid) return json(400,{error:"uid required"});
+  const limit=TIER_CREDITS[tier]??TIER_CREDITS.free;
+  const period=new Date().toISOString().slice(0,7);
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_user_credits`,{method:"POST",headers:sbHeaders(),body:JSON.stringify({p_uid:uid,p_period:period})});
+    const data=await r.json().catch(()=>null);
+    const spent=Number(data?.spent??0);
+    const remaining=Math.max(0,limit-spent);
+    const need=Number(body?.need??1);
+    return json(200,{allowed:remaining>=need,remaining,limit,used:spent,reset_seconds: secondsUntilReset()});
+  }catch(e){ return json(500,{error:String(e)}); }
 }
-function b64uDecode(s: string): Uint8Array {
-  let t = s.replace(/-/g, "+").replace(/_/g, "/");
-  while (t.length % 4) t += "=";
-  const bin = atob(t);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
+async function handleCreditsSpend(body:any): Promise<Response>{
+  const uid=String(body?.uid??"").trim(); const tier=String(body?.tier??"free").toLowerCase();
+  const model=String(body?.model??""); const usage=body?.usage??null;
+  let prompt_tokens=Number(body?.prompt_tokens??0), completion_tokens=Number(body?.completion_tokens??0);
+  if(usage){ prompt_tokens=Number(usage.prompt_tokens??usage.input_tokens??prompt_tokens); completion_tokens=Number(usage.completion_tokens??usage.output_tokens??completion_tokens); }
+  if(!uid) return json(400,{error:"uid required"});
+  const period=new Date().toISOString().slice(0,7);
+  // Costo OpenRouter unificado (mult sobre base, igual que core/credits.py).
+  const mult = model.includes("sonnet")?10: model.includes("gpt-4o")?7: model.includes("r1")?6: model.includes("gemini")?4.8: model.includes("nemo")?1.0: model.includes("qwen")||model.includes("coder")?1.5: model.includes("mistral")?3.5: 1.2;
+  const spent_now=Math.max(1,Math.ceil((prompt_tokens+3.5*completion_tokens)/1000*mult));
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/spend_user_credits`,{method:"POST",headers:{...sbHeaders(),prefer:"return=representation"},body:JSON.stringify({p_uid:uid,p_period:period,p_spent:spent_now})});
+    const data=await r.json().catch(()=>null);
+    const used=Number(data?.spent??spent_now);
+    const limit=TIER_CREDITS[tier]??TIER_CREDITS.free;
+    return json(200,{spent_now,used,limit,remaining:Math.max(0,limit-used)});
+  }catch(e){ return json(500,{error:String(e)}); }
 }
-async function hmacSign(data: string): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    "raw", enc.encode(TOKEN_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
-  );
-  return new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(data)));
-}
-async function makeToken(payload: Record<string, unknown>): Promise<string> {
-  const h = b64u(enc.encode(JSON.stringify({ alg: "HS256", typ: "JWT" })));
-  const p = b64u(enc.encode(JSON.stringify(payload)));
-  const sig = b64u(await hmacSign(`${h}.${p}`));
-  return `${h}.${p}.${sig}`;
-}
-async function verifyToken(token: string): Promise<Record<string, unknown> | null> {
-  try {
-    const [h, p, s] = token.split(".");
-    if (!h || !p || !s) return null;
-    if (b64u(await hmacSign(`${h}.${p}`)) !== s) return null;
-    const payload = JSON.parse(new TextDecoder().decode(b64uDecode(p)));
-    if (typeof payload.exp === "number" && payload.exp * 1000 < Date.now()) return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
+function secondsUntilReset(): number{ const now=new Date(); const nxt=new Date(now.getFullYear(), now.getMonth()+1, 1); return Math.floor((nxt.getTime()-now.getTime())/1000); }
 
-// ---- Supabase helpers (service_role bypassa RLS) ---------------------------
-function sbHeaders(): Record<string, string> {
-  return { apikey: SERVICE_ROLE, authorization: `Bearer ${SERVICE_ROLE}`, "content-type": "application/json" };
-}
-
-async function rpc(name: string, args: Record<string, unknown>): Promise<{ status: number; data: any }> {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
-    method: "POST",
-    headers: { ...sbHeaders(), prefer: "return=representation" },
-    body: JSON.stringify(args),
-  });
-  return { status: r.status, data: await r.json().catch(() => null) };
-}
-
-async function fetchLicense(serial: string): Promise<any> {
-  const r = await fetch(
-    `${SUPABASE_URL}/rest/v1/licenses?select=id,tier,revoked,expires_at&key=eq.${encodeURIComponent(serial)}&limit=1`,
-    { headers: sbHeaders() },
-  );
-  const rows = await r.json().catch(() => null);
-  return Array.isArray(rows) ? (rows[0] ?? null) : null;
-}
-
-async function fetchUsage(licenseId: string, period: string): Promise<any> {
-  const r = await fetch(
-    `${SUPABASE_URL}/rest/v1/usage?select=chats&license_id=eq.${licenseId}&period=eq.${period}&limit=1`,
-    { headers: sbHeaders() },
-  );
-  const rows = await r.json().catch(() => null);
-  return Array.isArray(rows) ? (rows[0] ?? null) : null;
-}
-
-// ---- handlers --------------------------------------------------------------
-async function handleActivate(req: Request, body: any): Promise<Response> {
-  const serial = String(body?.serial ?? "").trim().toUpperCase();
-  if (!serial) return json(400, { error: "serial required" });
-  const device = await deviceFingerprint(req);
-  const { status, data } = await rpc("activate_license", {
-    p_key: serial,
-    p_device_id: device,
-    p_machine_id: device,
-  });
-  if (status !== 200 || !data || data.error) {
-    return json(401, { error: data?.error ?? "Activation rejected" });
-  }
-  const tier = String(data.tier ?? "free").toLowerCase();
-  const exp = Number(data.expires_at ?? 0);
-  const token = await makeToken({
-    sub: serial,
-    tier,
-    exp: exp || Math.floor(Date.now() / 1000) + 365 * 86400,
-    iss: "xens",
-    iat: Math.floor(Date.now() / 1000),
-  });
-  return json(200, { token, tier, expires_at: exp || undefined });
-}
-
-async function handleMe(auth: string): Promise<Response> {
-  const payload = await requireAuth(auth);
-  if (payload instanceof Response) return payload;
-  return json(200, {
-    tier: String(payload.tier ?? "free").toLowerCase(),
-    expires_at: Number(payload.exp ?? 0),
-    online: true,
-  });
-}
-
-async function handleChat(req: Request, auth: string, body: any): Promise<Response> {
-  const payload = await requireAuth(auth);
-  if (payload instanceof Response) return payload;
-  const serial = String(payload.sub ?? "");
-  const tier = String(payload.tier ?? "free").toLowerCase();
-  const messages = body?.messages;
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return json(400, { error: "messages required" });
-  }
-
-  const lic = await fetchLicense(serial);
-  if (!lic) return json(401, { error: "License not found" });
-  if (lic.revoked) return json(401, { error: "License revoked by seller" });
-  if (lic.expires_at && Date.parse(lic.expires_at) < Date.now()) {
-    return json(401, { error: "License expired" });
-  }
-
-  const now = new Date();
-  const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  if (tier === "free") {
-    const usage = await fetchUsage(lic.id, period);
-    const chats = Number(usage?.chats ?? 0);
-    if (chats >= FREE_CHAT_CAP) {
-      return json(402, { error: `Free tier limit reached (${FREE_CHAT_CAP} chats/month)` });
-    }
-  }
-
-  const direct = tier === "free" || tier === "trial";
-  let upstream: string;
-  let apiKey: string;
-  let model: string;
-  if (direct) {
-    upstream = "https://api.mistral.ai/v1/chat/completions";
-    apiKey = MISTRAL_KEY;
-    model = String(body?.model ?? DEFAULT_MODELS.free);
+async function handleChat(req: Request, auth:string, body:any): Promise<Response>{
+  const caller=await resolveAuth(auth); if(caller instanceof Response) return caller;
+  const tier=caller.tier;
+  const messages=body?.messages; if(!Array.isArray(messages)||messages.length===0) return json(400,{error:"messages required"});
+  let lic:any=null;
+  const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  if(caller.kind==="license"){
+    lic=await fetchLicense(caller.sub); if(!lic) return json(401,{error:"License not found"}); if(lic.revoked) return json(401,{error:"License revoked"}); if(lic.expires_at && Date.parse(lic.expires_at)<Date.now()) return json(401,{error:"License expired"});
+    if(tier==="free"){ const usage=await fetchUsage(lic.id,period); const chats=Number(usage?.chats??0); if(chats>=FREE_CHAT_CAP) return json(402,{error:`Free tier limit reached (${FREE_CHAT_CAP} chats/month)`}); }
   } else {
-    upstream = "https://openrouter.ai/api/v1/chat/completions";
-    apiKey = OPENROUTER_KEY;
-    model = String(body?.model ?? DEFAULT_MODELS.pro);
+    // Cuenta sin serial: gate por Xens Credits del uid (el cliente descuenta).
+    const gate=await accountCredits(caller.uid,tier,1);
+    if(!gate.allowed) return json(402,{error:`Alcanzaste el límite de Xens Credits de tu plan (${gate.limit} al mes). Se renuevan el 1º.`});
   }
-  if (!apiKey) {
-    return json(500, { error: "Server has no API key configured for this tier" });
+  // XENS alias manual selection
+  const alias = String(body?.xens_model ?? body?.alias ?? "").trim();
+  if(alias && alias.toLowerCase()!=="auto" && XENS_ALIAS_MAP[alias]){
+    body.model = XENS_ALIAS_MAP[alias].model;
+  } else if(alias && alias.toLowerCase()!=="auto"){
+    const found = Object.keys(XENS_ALIAS_MAP).find(k=>k.toLowerCase()===alias.toLowerCase());
+    if(found) body.model = XENS_ALIAS_MAP[found].model;
   }
-
-  const llmPayload: Record<string, unknown> = { model, messages, temperature: 0.3, max_tokens: 2000 };
-  const tools = body?.tools;
-  if (Array.isArray(tools) && tools.length > 0) llmPayload.tools = tools;
-
-  let r: Response;
-  try {
-    r = await fetch(upstream, {
-      method: "POST",
-      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-      body: JSON.stringify(llmPayload),
+  // stream flag — always prefer stream for word-by-word (reduces perceived latency)
+  if(body?.stream || body?.xens_stream !== false) {
+    // if caller wants streaming but didn't set stream, we upgrade to stream when not needing tools? keep tools streaming
+    // For tool-calling, streaming still works with tool_calls chunked
+    return handleChatStream(messages, body?.tools, tier, String(body?.model ?? ""));
+  }
+  // Todo por OpenRouter (facturación unificada). Mistral directo solo
+  // como último recurso si OpenRouter cae.
+  const OR_URL="https://openrouter.ai/api/v1/chat/completions";
+  let upstream:string=OR_URL, apiKey:string=OPENROUTER_KEY, model:string;
+  model=String(body?.model??DEFAULT_MODELS[tier]??DEFAULT_MODELS.pro);
+  if(!apiKey) return json(500,{error:"Server has no API key for this tier"});
+  const llmPayload:Record<string,unknown>={model,messages,temperature:0.3,max_tokens:2000}; if(Array.isArray(body?.tools)&&body.tools.length>0) llmPayload.tools=body.tools;
+  async function tryUpstream(url:string,key:string,mdl:string):Promise<boolean>{
+    (llmPayload as any).model=mdl;
+    try{
+      r=await fetch(url,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify(llmPayload)});
+      up=await r.json().catch(()=>null);
+      if(r.status<400){ model=mdl; upstream=url; return true; }
+      lastErr=String(up?.error?.message??`status ${r.status}`);
+      return r.status===429;
+    }catch{ lastErr="upstream unreachable"; return false; }
+  }
+  let r:Response|null=null, up:any=null, lastErr="";
+  // Orden: modelo pedido -> barato pago del mismo uso -> free -> Mistral directo.
+  const paidFallback = model.includes("sonnet") ? "anthropic/claude-sonnet-4"
+    : model.includes("gemini") ? "google/gemini-2.0-flash-001"
+    : model.includes("coder") || model.includes("qwen") ? "qwen/qwen-2.5-coder-32b-instruct"
+    : model.includes("r1") ? "deepseek/deepseek-r1"
+    : "deepseek/deepseek-chat";
+  const queue = [model];
+  if(paidFallback!==model) queue.push(paidFallback);
+  for(const m of FREE_FALLBACKS){ if(m!==model && m!==paidFallback) queue.push(m); }
+  for(const m of queue){
+    if(await tryUpstream(OR_URL,OPENROUTER_KEY,m)) break;
+    if(r && (r as Response).status!==429 && !String(lastErr).includes("Provider returned")) break;
+  }
+  if(!(r && (r as Response).status<400) && MISTRAL_KEY && (model.includes("mistral")||model.includes("codestral")||model.includes("pixtral")||tier==="free")){
+    await tryUpstream("https://api.mistral.ai/v1/chat/completions",MISTRAL_KEY,
+      tier==="free" ? "mistral-small-2506" : model);
+  }
+  if(!r||r.status>=400) return json(502,{error:`Model error`,detail:lastErr});
+  const msg=up?.choices?.[0]?.message??{};
+  if(lic) await rpc("bump_usage",{p_license_id:lic.id,p_period:period,p_tokens_in:Number(up?.usage?.prompt_tokens??0),p_tokens_out:Number(up?.usage?.completion_tokens??0)});
+  return json(200,{content:msg.content??"",tool_calls:msg.tool_calls??[],model:up?.model??model,usage:up?.usage??null,tier});
+}
+async function tryStream(url:string,key:string,mdl:string,messages:any,tools:any):Promise<Response|null>{
+  const payload:any={model:mdl,messages,temperature:0.3,stream:true}; if(Array.isArray(tools)&&tools.length>0) payload.tools=tools;
+  const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(), 25000);
+  try{
+    const r=await fetch(url,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify(payload), signal: ctrl.signal});
+    clearTimeout(t);
+    if(r.status>=400 || !r.body){ try{ await r.cancel(); }catch{} return null; }
+    // Validar primer byte: algunos modelos abren 200 y cierran sin datos.
+    const reader=r.body.getReader();
+    const first = await Promise.race([
+      reader.read(),
+      new Promise<never>((_,rej)=>setTimeout(()=>rej(new Error("first-byte-timeout")),15000)),
+    ]).catch(()=>null) as ReadableStreamReadResult<Uint8Array>|null;
+    if(!first || first.done || !first.value || first.value.length===0){ try{ reader.releaseLock(); await r.cancel(); }catch{} return null; }
+    const rest = reader;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c){ c.enqueue(first.value); },
+      async pull(c){
+        const {value,done} = await rest.read();
+        if(done){ c.close(); try{ rest.releaseLock(); }catch{} }
+        else c.enqueue(value);
+      },
+      cancel(){ try{ rest.cancel(); }catch{} },
     });
-  } catch {
-    return json(502, { error: "Upstream LLM unreachable" });
+    const text = stream.pipeThrough(new TextDecoderStream());
+    return new Response(text,{headers:{"content-type":"text/event-stream", "cache-control":"no-cache", ...CORS}});
+  }catch{ clearTimeout(t); return null; }
+}
+async function handleChatStream(messages:any, tools:any, tier:string, requestedModel:string=""): Promise<Response>{
+  const base = requestedModel || (DEFAULT_MODELS[tier] ?? DEFAULT_MODELS.free);
+  const isMistral = base.includes("mistral") || base.includes("codestral") || base.includes("pixtral");
+  // OpenRouter primero (facturación unificada); Mistral directo al final.
+  const cands: Array<{url:string,key:string,mdl:string}> = [];
+  if(OPENROUTER_KEY) cands.push({url:"https://openrouter.ai/api/v1/chat/completions",key:OPENROUTER_KEY,mdl:base});
+  if(OPENROUTER_KEY){
+    for(const m of ["deepseek/deepseek-chat", ...FREE_FALLBACKS]){
+      if(m===base) continue;
+      cands.push({url:"https://openrouter.ai/api/v1/chat/completions",key:OPENROUTER_KEY,mdl:m});
+    }
   }
-  const up = await r.json().catch(() => null);
-  if (r.status >= 400) {
-    return json(502, { error: `Model error ${r.status}`, detail: String(up?.error?.message ?? "") });
+  if(isMistral && MISTRAL_KEY) cands.push({url:"https://api.mistral.ai/v1/chat/completions",key:MISTRAL_KEY,mdl:base});
+  for(const c of cands){
+    const s=await tryStream(c.url,c.key,c.mdl,messages,tools);
+    if(s) return s;
   }
-
-  const msg = up?.choices?.[0]?.message ?? {};
-  await rpc("bump_usage", {
-    p_license_id: lic.id,
-    p_period: period,
-    p_tokens_in: Number(up?.usage?.prompt_tokens ?? 0),
-    p_tokens_out: Number(up?.usage?.completion_tokens ?? 0),
-  });
-
-  return json(200, {
-    content: msg.content ?? "",
-    tool_calls: msg.tool_calls ?? [],
-    model: up?.model ?? model,
-    usage: up?.usage ?? null,
-    tier,
-  });
+  return json(502,{error:"All stream models failed"});
+}
+async function handleDeactivate(body:any): Promise<Response>{ const serial=String(body?.serial??"").trim().toUpperCase(); if(!serial) return json(400,{error:"serial required"}); const device=String(body?.device_id??""); const {status,data}=await rpc("deactivate_license",{p_key:serial,p_device_id:device,p_machine_id:device}); if(status!==200||!data||data.error) return json(400,{error:data?.error??"Deactivation failed"}); return json(200,data); }
+async function deviceFingerprint(req:Request):Promise<string>{ const ip=req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()??"unknown"; const ua=req.headers.get("user-agent")??""; const buf=await crypto.subtle.digest("SHA-256",enc.encode(`${ip}|${ua}`)); return Array.from(new Uint8Array(buf)).slice(0,8).map(b=>b.toString(16).padStart(2,"0")).join(""); }
+async function requireAuth(auth:string):Promise<Record<string,unknown>|Response>{ if(!auth?.toLowerCase().startsWith("bearer ")) return json(401,{error:"Missing Bearer token"}); const payload=await verifyToken(auth.slice(7).trim()); if(!payload) return json(401,{error:"License token invalid, expired or revoked (401). Run /activate again."}); return payload; }
+async function supabaseUser(token:string):Promise<any|null>{
+  try{
+    const r=await fetch(`${SUPABASE_URL}/auth/v1/user`,{headers:{apikey:SERVICE_ROLE,authorization:`Bearer ${token}`}});
+    if(r.status!==200) return null;
+    return await r.json().catch(()=>null);
+  }catch{ return null; }
+}
+type Caller = {kind:"license",sub:string,tier:string} | {kind:"account",uid:string,email:string,tier:string};
+async function resolveAuth(auth:string):Promise<Caller|Response>{
+  if(!auth?.toLowerCase().startsWith("bearer ")) return json(401,{error:"Missing Bearer token"});
+  const token=auth.slice(7).trim();
+  const payload=await verifyToken(token);
+  if(payload) return {kind:"license",sub:String(payload.sub??""),tier:String(payload.tier??"free").toLowerCase()};
+  // No es serial: probar JWT de cuenta Supabase (consumidor sin serial).
+  const u=await supabaseUser(token);
+  const uid=u?.id||u?.sub;
+  if(!uid) return json(401,{error:"Token inválido (ni licencia ni cuenta). Inicia sesión de nuevo."});
+  const meta=u?.user_metadata??{}; const app=u?.app_metadata??{};
+  let tier=String(app.tier??meta.tier??"free").toLowerCase();
+  if(!TIER_CREDITS[tier]) tier="free";
+  return {kind:"account",uid:String(uid),email:String(u?.email??meta.email??""),tier};
+}
+async function accountCredits(uid:string,tier:string,need=1):Promise<{allowed:boolean;remaining:number;limit:number}>{
+  const limit=TIER_CREDITS[tier]??TIER_CREDITS.free;
+  const period=new Date().toISOString().slice(0,7);
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_user_credits`,{method:"POST",headers:sbHeaders(),body:JSON.stringify({p_uid:uid,p_period:period})});
+    const data=await r.json().catch(()=>null);
+    const spent=Number(data?.spent??0);
+    const remaining=Math.max(0,limit-spent);
+    return {allowed:remaining>=need,remaining,limit};
+  }catch{ return {allowed:true,remaining:limit,limit}; }
 }
 
-async function handleDeactivate(body: any): Promise<Response> {
-  const serial = String(body?.serial ?? "").trim().toUpperCase();
-  if (!serial) return json(400, { error: "serial required" });
-  const device = String(body?.device_id ?? "");
-  const { status, data } = await rpc("deactivate_license", {
-    p_key: serial,
-    p_device_id: device,
-    p_machine_id: device,
-  });
-  if (status !== 200 || !data || data.error) {
-    return json(400, { error: data?.error ?? "Deactivation failed" });
-  }
-  return json(200, data);
-}
-
-// ---- shared -----------------------------------------------------------------
-async function deviceFingerprint(req: Request): Promise<string> {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  const ua = req.headers.get("user-agent") ?? "";
-  const buf = await crypto.subtle.digest("SHA-256", enc.encode(`${ip}|${ua}`));
-  return Array.from(new Uint8Array(buf))
-    .slice(0, 8)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function requireAuth(auth: string): Promise<Record<string, unknown> | Response> {
-  if (!auth?.toLowerCase().startsWith("bearer ")) {
-    return json(401, { error: "Missing Bearer token" });
-  }
-  const payload = await verifyToken(auth.slice(7).trim());
-  if (!payload) {
-    return json(401, { error: "License token invalid, expired or revoked (401). Run /activate again." });
-  }
-  return payload;
-}
-
-// ---- router ------------------------------------------------------------------
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-  const url = new URL(req.url);
-  const path = url.pathname.split("/").filter(Boolean).pop() ?? "";
-  try {
-    if (req.method === "POST" && path === "activate") {
-      return await handleActivate(req, await req.json().catch(() => ({})));
-    }
-    if (req.method === "GET" && path === "me") {
-      return await handleMe(req.headers.get("authorization") ?? "");
-    }
-    if (req.method === "POST" && path === "chat") {
-      return await handleChat(req, req.headers.get("authorization") ?? "", await req.json().catch(() => ({})));
-    }
-    if (req.method === "POST" && path === "deactivate") {
-      return await handleDeactivate(await req.json().catch(() => ({})));
-    }
-    if (req.method === "GET" && path === "health") {
-      return json(200, { ok: true });
-    }
-    return json(404, { error: "Not found" });
-  } catch (e) {
-    return json(500, { error: String(e) });
-  }
+Deno.serve(async (req:Request)=>{
+  if(req.method==="OPTIONS") return new Response(null,{status:204,headers:CORS});
+  const url=new URL(req.url); const path=url.pathname.split("/").filter(Boolean).pop()??"";
+  try{
+    if(req.method==="POST"&&path==="activate") return await handleActivate(req, await req.json().catch(()=>({})));
+    if(req.method==="POST"&&path==="provision-free") return await handleProvisionFree(req, await req.json().catch(()=>({})));
+    if(req.method==="GET"&&path==="me") return await handleMe(req.headers.get("authorization")??"");
+    if(req.method==="POST"&&path==="chat") return await handleChat(req, req.headers.get("authorization")??"", await req.json().catch(()=>({})));
+    if(req.method==="POST"&&path==="chat-stream") return await handleChat(req, req.headers.get("authorization")??"", {...await req.json().catch(()=>({})),stream:true});
+    if(req.method==="POST"&&path==="credits-check") return await handleCreditsCheck(await req.json().catch(()=>({})));
+    if(req.method==="POST"&&path==="credits-spend") return await handleCreditsSpend(await req.json().catch(()=>({})));
+    if(req.method==="POST"&&path==="deactivate") return await handleDeactivate(await req.json().catch(()=>({})));
+    if(req.method==="GET"&&path==="health") return json(200,{ok:true, tiers:TIER_CREDITS});
+    return json(404,{error:"Not found"});
+  }catch(e){ return json(500,{error:String(e)}); }
 });

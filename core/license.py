@@ -39,8 +39,8 @@ _SECRET = (
 _STATE_PATH = Path.home() / ".xens" / "license.json"
 STATE_DIR = _STATE_PATH.parent
 
-TIERS = ("FREE", "PRO", "PREMIUM")
-_TIER_TO_SYSTEM = {"FREE": "free", "PRO": "pro", "PREMIUM": "premium"}
+TIERS = ("FREE", "LITE", "PRO", "PREMIUM")
+_TIER_TO_SYSTEM = {"FREE": "free", "LITE": "lite", "PRO": "pro", "PREMIUM": "premium"}
 UNBOUND_HWID = "00000000"
 
 # Default license server: the Xens Supabase Edge Function. Used as a fallback
@@ -247,6 +247,62 @@ def activate_online(raw_serial: str, server_url: str = "") -> dict:
     _save_state(state)
     logger.info(f"Online license activated via {url} (tier {state['tier']})")
     return {"success": True, "tier": state["tier"].lower(), "status": "activated", "online": True}
+
+
+def provision_free_online(server_url: str = "") -> dict:
+    """Cero-config para el consumidor: obtiene la licencia Free lifetime de
+    esta máquina (creada en el servidor si no existe) y la guarda.
+
+    No pide serial ni API keys. Best-effort: si no hay internet, devuelve
+    el estado actual (trial local) sin romper el arranque.
+    """
+    import httpx
+    url = (server_url or get_server_url_with_default()).rstrip("/")
+    if not url:
+        return {"success": False, "error": "No license server configured.", "status": "no_server"}
+    try:
+        with httpx.Client(timeout=20) as c:
+            r = c.post(f"{url}/api/provision-free", json={"machine_id": get_hwid()})
+    except Exception as e:
+        return {"success": False, "error": f"Cannot reach license server: {e}", "status": "unreachable"}
+    if r.status_code >= 400:
+        try:
+            err = r.json().get("error") or r.text[:200]
+        except Exception:
+            err = r.text[:200]
+        return {"success": False, "error": f"Server ({r.status_code}): {err}", "status": "rejected"}
+    try:
+        data = r.json()
+    except Exception:
+        return {"success": False, "error": "Server returned non-JSON response.", "status": "rejected"}
+    token = data.get("token")
+    if not token:
+        return {"success": False, "error": "Server returned no token.", "status": "rejected"}
+    state = {
+        "mode": "online",
+        "token": token,
+        "tier": (data.get("tier") or "FREE").upper(),
+        "server_url": url,
+        "expires_at": data.get("expires_at"),
+        "activated_at": int(time.time()),
+        "free_provisioned": True,
+    }
+    _save_state(state)
+    logger.info(f"Free license provisioned via {url}")
+    return {"success": True, "tier": state["tier"].lower(), "status": "activated", "online": True}
+
+
+def ensure_free_license() -> dict:
+    """Si no hay licencia ni desbloqueo, auto-activa el Free online.
+
+    Llamar una vez al arrancar. Nunca bloquea ni pide nada al usuario.
+    """
+    st = get_state()
+    if st.get("status") in ("licensed", "unlocked"):
+        return {"success": True, "status": st["status"]}
+    if _cfg_unlocked():
+        return {"success": True, "status": "unlocked"}
+    return provision_free_online()
 
 
 def get_state() -> dict:

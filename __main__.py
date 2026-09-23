@@ -19,6 +19,39 @@ from .core import license as lic
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("xens")
 
+
+def _setup_file_logging():
+    """Log a archivo: en modo app no hay consola visible y los crashes
+    quedaban ciegos. Guarda en ~/.xens/logs/xens-YYYYMMDD.log + excepciones
+    no capturadas (hilo principal y threads)."""
+    try:
+        from pathlib import Path
+        logdir = Path.home() / ".xens" / "logs"
+        logdir.mkdir(parents=True, exist_ok=True)
+        import time
+        fh = logging.FileHandler(logdir / f"xens-{time.strftime('%Y%m%d')}.log", encoding="utf-8")
+        fh.setLevel(logging.INFO)
+        fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+        logging.getLogger().addHandler(fh)
+
+        def _hook(etype, value, tb):
+            logging.getLogger("xens.crash").exception("Uncaught", exc_info=(etype, value, tb))
+        import sys as _sys
+        _sys.excepthook = _hook
+
+        def _thread_hook(args):
+            logging.getLogger("xens.crash").exception(
+                "Uncaught thread", exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+        import threading as _th
+        _th.excepthook = _thread_hook
+        return str(logdir)
+    except Exception as e:
+        logger.warning(f"File logging desactivado: {e}")
+        return ""
+
+
+LOG_DIR = _setup_file_logging()
+
 def _register_tools():
     discovered = discover_tools()
     names = registry.tool_names
@@ -47,6 +80,53 @@ async def _run_web(session):
         await web.stop()
         await shutdown_all()
 
+def _run_app(session):
+    """Modo app nativa: servidor en segundo plano + ventana WebView2.
+
+    Un solo exe, doble clic y se abre XENS. Al cerrar la ventana termina todo.
+    """
+    from .web.server import WebServer as _WS
+
+    started = threading.Event()
+    holder: dict = {}
+
+    def _serve():
+        async def _boot():
+            web = _WS(session)
+            await web.start()
+            holder["web"] = web
+            started.set()
+            try:
+                stop = asyncio.Event()
+                await stop.wait()
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                pass
+        try:
+            asyncio.run(_boot())
+        finally:
+            try:
+                web = holder.get("web")
+                if web is not None:
+                    asyncio.run(web.stop())
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_serve, daemon=True, name="xens-server")
+    t.start()
+    if not started.wait(timeout=30):
+        logger.warning("Web server tardó en arrancar; abro la ventana igual")
+    try:
+        from .web.app_window import open_app_window
+        from .core.config import PORT as _PORT
+        open_app_window(f"http://127.0.0.1:{_PORT}")
+    finally:
+        try:
+            from .core.utils import shutdown_all as _sd
+            asyncio.run(_sd())
+        except Exception:
+            pass
+        os._exit(0)
+
 async def _run_cli(session):
     chat = ConsoleChat(session)
     try:
@@ -59,6 +139,8 @@ def _check() -> int:
     _register_tools()
     tier = registry.get_tier()
     print(f"Xens Assistant v{get_current_version()}")
+    if LOG_DIR:
+        print(f"  logs: {LOG_DIR} (manda el .log si algo falla)")
     print(f"  tools: {registry.count}/{registry.count_total} available (tier: {tier}, {registry.count_hidden} hidden)")
     print(f"  platforms: windows={sys.platform == 'win32'}")
     missing = []
@@ -85,9 +167,15 @@ def main():
     parser.add_argument("--check", action="store_true", help="Run diagnostics and exit")
     parser.add_argument("--no-web", action="store_true", help="Disable the web UI server")
     parser.add_argument("--headless", action="store_true", help="UI-only mode: web server without console chat")
+    parser.add_argument("--app", action="store_true", help="Native app mode: server + WebView2 window (single exe)")
     parser.add_argument("--tier", choices=["free", "pro", "premium"], help="Override tier (default free)")
     parser.add_argument("--version", action="version", version=get_current_version())
     args = parser.parse_args()
+
+    # Doble clic al exe = modo app nativa (ventana). En terminal se puede
+    # forzar consola con --no-web / --headless / --check.
+    if getattr(sys, "frozen", False) and not (args.app or args.headless or args.no_web or args.check):
+        args.app = True
 
     _register_tools()
 
@@ -95,6 +183,15 @@ def main():
         registry.set_tier(args.tier)
         logger.info("Tier overridden to '%s'", args.tier)
     else:
+        # Cero-config: sin licencia, auto-activa el Free online (sin pedir nada).
+        # Si no hay internet, se sigue en trial local.
+        try:
+            if lic.get_state()["status"] not in ("licensed", "unlocked"):
+                r = lic.ensure_free_license()
+                if r.get("success"):
+                    print("  plan: Free activado automáticamente (5.000 Xens Credits/mes).")
+        except Exception as e:
+            logger.warning(f"Free auto-provision failed: {e}")
         lic_state = lic.get_state()
         if lic_state["status"] in ("licensed", "unlocked"):
             registry.set_tier(lic.effective_tier())
@@ -107,9 +204,10 @@ def main():
         sys.exit(_check())
 
     from .core.config import API_KEY
-    if not API_KEY:
-        print("\n  \033[33mWarning:\033[0m No API key found. Chat will not work.")
-        print("  Set MISTRAL_API_KEY or add one to ~/.xens/config.json.")
+    if not API_KEY and not lic.get_state().get("online"):
+        print("\n  \033[33mWarning:\033[0m No API key found and no online plan. Chat will not work.")
+        print("  Connect to the internet once so your Free plan activates automatically,")
+        print("  or set MISTRAL_API_KEY / add one to ~/.xens/config.json.")
         print("  You can still test tools: /tools, /test <tool> [args]\n")
 
     # Check for updates in background (git repos use git pull; others use ZIP feed)
@@ -127,7 +225,10 @@ def main():
     logger.info(f"Xens Assistant v{get_current_version()} starting — {registry.count}/{registry.count_total} tools available (tier: {registry.get_tier()})")
 
     try:
-        if args.headless:
+        if args.app:
+            logger.info("Native app mode — ventana XENS")
+            _run_app(session)
+        elif args.headless:
             logger.info(f"Headless UI mode — Web UI at http://127.0.0.1:{PORT}")
             asyncio.run(_run_web(session))
         elif args.no_web:

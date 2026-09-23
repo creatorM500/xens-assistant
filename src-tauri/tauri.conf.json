@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "XENS",
+  "version": "1.0.0",
+  "identifier": "com.svyteck.xens",
+  "build": {
+    "frontendDist": "../web/static",
+    "devUrl": "http://127.0.0.1:18000",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "XENS",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis"],
+    "icon": ["icons/icon.ico"],
+    "category": "Productivity",
+    "shortDescription": "XENS Assistant",
+    "longDescription": "XENS Assistant - app nativa Windows con backend Python local.",
+    "externalBin": ["binaries/Xens"]
+  }
+}

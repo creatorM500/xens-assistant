@@ -140,6 +140,11 @@ img {
   color: var(--text-primary);
 }
 
+.nav-credit {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
 .nav-actions {
   display: flex;
   align-items: center;
@@ -326,6 +331,19 @@ img {
 .pricing-grid-3 {
   grid-template-columns: repeat(3, 1fr);
   max-width: 1000px;
+}
+.pricing-grid-4 {
+  grid-template-columns: repeat(4, 1fr);
+  max-width: 1200px;
+}
+.pricing-note {
+  margin-top: 30px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 700px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .price-card {
@@ -677,11 +695,19 @@ img {
 }
 
 /* ============ RESPONSIVE ============ */
+@media (max-width: 1100px) {
+  .pricing-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 @media (max-width: 860px) {
   .feature-grid {
     grid-template-columns: 1fr;
   }
   .pricing-grid {
+    grid-template-columns: 1fr;
+  }
+  .pricing-grid-4 {
     grid-template-columns: 1fr;
   }
   .hero h1 {
