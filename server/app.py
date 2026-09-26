@@ -1,7 +1,7 @@
 """
 server/app.py — reference license + LLM-proxy server (Codex-style).
 
-Endpoints (the contract that Xens client llm/remote.py implements):
+    Endpoints (the contract that Ainslup client llm/remote.py implements):
     POST /api/activate   {"serial"}                      -> {"token","tier","expires_at"}
     GET  /api/me         Bearer token                    -> {"tier","expires_at","online"}
     POST /api/chat       Bearer token {"messages","tools","tier"} -> {"content","tool_calls","model"}
@@ -11,7 +11,7 @@ revoke a serial (blocklist) to stop paying users instantly.
 
 Run (needs your Mistral key):
     python server/app.py --port 8900
-    (MISTRAL_API_KEY is read from env or from ~/.xens/config.json)
+    (MISTRAL_API_KEY is read from env or from ~/.ainslup/config.json)
 """
 import argparse, base64, hashlib, hmac, json, logging, os, secrets, time
 from pathlib import Path
@@ -39,7 +39,7 @@ def _mistral_key() -> str:
     if key:
         return key
     try:
-        cfg = json.loads((Path.home() / ".xens" / "config.json").read_text(encoding="utf-8"))
+        cfg = json.loads((Path.home() / ".ainslup" / "config.json").read_text(encoding="utf-8"))
         return cfg.get("llm", {}).get("mistral", {}).get("api_key", "") or cfg.get("api_key", "")
     except Exception:
         return ""
@@ -196,7 +196,7 @@ async def h_health(request):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Xens reference license server")
+    ap = argparse.ArgumentParser(description="Ainslup reference license server")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8900)
     args = ap.parse_args()
@@ -204,7 +204,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
     if not MISTRAL_KEY:
-        logger.warning("No API key found (MISTRAL_API_KEY env or ~/.xens/config.json). Chat proxy will fail.")
+        logger.warning("No API key found (MISTRAL_API_KEY env or ~/.ainslup/config.json). Chat proxy will fail.")
 
     app = web.Application(middlewares=[nocors])
     app.router.add_post("/api/activate", h_activate)
@@ -212,7 +212,7 @@ def main():
     app.router.add_post("/api/chat", h_chat)
     app.router.add_get("/api/health", h_health)
 
-    logger.info(f"Xens license server on http://{args.host}:{args.port}")
+    logger.info(f"Ainslup license server on http://{args.host}:{args.port}")
     web.run_app(app, host=args.host, port=args.port)
 
 

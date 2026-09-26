@@ -3,7 +3,7 @@ from pathlib import Path
 
 logger = logging.getLogger("xens.memory")
 
-MEMORY_DIR = Path.home() / ".xens" / "sessions"
+MEMORY_DIR = Path.home() / ".ainslup" / "sessions"
 _SAVE_DEBOUNCE = 3.0
 
 class Session:

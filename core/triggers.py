@@ -8,7 +8,7 @@ Un disparador lanza una tarea en segundo plano de forma automática:
   tarea en segundo plano (task_name opcional).
 
 El disparo reusa el TaskManager: corre un loop LLM autónomo (tools/triggers
-provee el runner) que consume Xens Credits normalmente según el dueño.
+  provee el runner) que consume Ainslup Credits normalmente según el dueño.
 
 Control de costos:
 - online_only: solo dispara si el dueño está conectado (WS activo).
@@ -22,7 +22,7 @@ from typing import Callable, Optional
 
 logger = logging.getLogger("xens.triggers")
 
-TRIGGERS_FILE = Path.home() / ".xens" / "triggers.json"
+TRIGGERS_FILE = Path.home() / ".ainslup" / "triggers.json"
 TICK_SECONDS = 30
 DEFAULT_DAILY_CAP = 20
 MIN_EVERY_MINUTES = 15

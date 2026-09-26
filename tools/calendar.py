@@ -1,7 +1,7 @@
 from .registry import register
 """
 calendar.py — Local calendar manager.
-Events stored in ~/.xens/calendar.json. Simple JSON-based storage.
+Events stored in ~/.ainslup/calendar.json. Simple JSON-based storage.
 Supports Google/Outlook via config (extensible).
 Ported from Xens Omni calendar_client.py with path cleanup and JSON returns.
 """
@@ -12,8 +12,8 @@ from typing import Optional
 
 logger = logging.getLogger("xens.tools.calendar")
 
-_CAL_PATH = Path.home() / ".xens" / "calendar.json"
-_CAL_CONFIG_PATH = Path.home() / ".xens" / "calendar_config.json"
+_CAL_PATH = Path.home() / ".ainslup" / "calendar.json"
+_CAL_CONFIG_PATH = Path.home() / ".ainslup" / "calendar_config.json"
 
 def _load_events() -> list:
     try:

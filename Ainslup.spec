@@ -23,7 +23,7 @@ for p in ("tools", "core", "llm", "memory", "web", "ui"):
         stem = Path(f).stem
         if stem == "__init__":
             continue
-        hiddenimports.append(f"xens_assistant.{p}.{stem}")
+        hiddenimports.append(f"ainslup_assistant.{p}.{stem}")
 
 a = Analysis(
     ["cli_entry.py"],
@@ -77,11 +77,11 @@ a = Analysis(
 )
 a.datas += [("version.txt", str(Path("version.txt")), "DATA")]
 # Web UI estática: en el bundle el código corre como
-# _MEIPASS/xens_assistant/web/server.py, así que los estáticos van a
-# xens_assistant/web/static (web/server.py los busca ahí primero).
+# _MEIPASS/ainslup_assistant/web/server.py, así que los estáticos van a
+# ainslup_assistant/web/static (web/server.py los busca ahí primero).
 for _p in sorted((PKG / "web" / "static").rglob("*")):
     if _p.is_file():
-        a.datas += [((Path("xens_assistant") / _p.relative_to(PKG)).as_posix(), str(_p), "DATA")]
+        a.datas += [((Path("ainslup_assistant") / _p.relative_to(PKG)).as_posix(), str(_p), "DATA")]
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -90,8 +90,9 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="Xens",
+    name="Ainslup",
     debug=False,
+    version="scripts/version_info.txt",
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,

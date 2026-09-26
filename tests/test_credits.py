@@ -1,4 +1,4 @@
-﻿"""Unit tests: Xens Credits (ledger por uid, multiplicadores, lÃ­mites).
+﻿"""Unit tests: Ainslup Credits (ledger por uid, multiplicadores, lÃ­mites).
 
 Uso: python tests/test_credits.py  (desde la raÃ­z del repo)
 """
@@ -11,9 +11,9 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")))
 
-from xens_assistant.core import credits as cred_mod
-from xens_assistant.core.credits import CreditLedger
-from xens_assistant.core.tier_config import tier_config
+from ainslup_assistant.core import credits as cred_mod
+from ainslup_assistant.core.credits import CreditLedger
+from ainslup_assistant.core.tier_config import tier_config
 
 
 def main():

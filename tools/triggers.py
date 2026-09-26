@@ -2,7 +2,7 @@
 
 create_trigger (Pro/Premium): agenda tareas automáticas (cada N minutos, a
 una hora fija, o cuando termine otra tarea) que corren en segundo plano y
-consumen Xens Credits normalmente. list_triggers/delete_trigger gestionan
+  consumen Ainslup Credits normalmente. list_triggers/delete_trigger gestionan
 los disparadores del usuario.
 """
 import json, logging
@@ -14,7 +14,7 @@ from ..memory.session import Session
 logger = logging.getLogger("xens.tools.triggers")
 
 TRIGGER_AGENT_SYSTEM = (
-    "Eres un agente de tareas automáticas de Xens Assistant ejecutando el "
+    "Eres un agente de tareas automáticas de Ainslup Assistant ejecutando el "
     "disparador «{name}». Trabaja de forma autónoma con las herramientas "
     "disponibles, continúa desde el contexto de la conversación y responde "
     "SOLO con un resumen final conciso (máximo 300 palabras)."

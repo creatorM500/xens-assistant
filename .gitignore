@@ -35,3 +35,8 @@ supabase/.temp/
 *.log
 # Portable de distribución (se entrega por Storage, no git)
 dist-portable/
+# Credenciales locales de Supabase/staging (JAMÁS commitear)
+staging_keys.json
+staging_dbpass.txt
+supabase.json
+_update_verify/

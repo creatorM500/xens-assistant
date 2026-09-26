@@ -3,7 +3,7 @@
 Suite de herramientas para cortar, unir, convertir, escalar, cambiar
 velocidad, extraer audio, generar miniaturas y GIFs.
 
-ffmpeg/ffprobe: se buscan en PATH y en ~/.xens/bin. Si no existen en
+ffmpeg/ffprobe: se buscan en PATH y en ~/.ainslup/bin. Si no existen en
 Windows se descargan automáticamente (build portable) al primer uso;
 en Linux/macOS se indica el comando para instalarlos.
 
@@ -21,8 +21,8 @@ from pathlib import Path
 
 from .registry import register, ToolError
 
-BIN_DIR = Path.home() / ".xens" / "bin"
-OUT_DIR = Path.home() / ".xens" / "video"
+BIN_DIR = Path.home() / ".ainslup" / "bin"
+OUT_DIR = Path.home() / ".ainslup" / "video"
 
 _FFMPEG_ZIP_URL = (
     "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/"
@@ -57,7 +57,7 @@ def _find_bin(name: str):
 
 
 def _download_ffmpeg():
-    """Download a portable Windows build of ffmpeg+ffprobe into ~/.xens/bin."""
+    """Download a portable Windows build of ffmpeg+ffprobe into ~/.ainslup/bin."""
     BIN_DIR.mkdir(parents=True, exist_ok=True)
     tmp = BIN_DIR / "ffmpeg_download.zip"
     try:
@@ -71,7 +71,7 @@ def _download_ffmpeg():
                     with z.open(n) as src, open(BIN_DIR / base, "wb") as dst:
                         shutil.copyfileobj(src, dst)
         tmp.unlink(missing_ok=True)
-        print("[video] ffmpeg listo en ~/.xens/bin")
+        print("[video] ffmpeg listo en ~/.ainslup/bin")
     except Exception as e:
         tmp.unlink(missing_ok=True)
         raise ToolError(

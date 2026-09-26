@@ -1,6 +1,6 @@
 /* ============================================================
-   XENS ASSISTANT — app.js
-   Lógica de chat + integración WebSocket con el motor local (Xens.exe)
+   AINSLUP ASSISTANT — app.js
+   Lógica de chat + integración WebSocket con el motor local (Ainslup.exe)
 
    Protocolo del backend (ws://127.0.0.1:18000/ws):
      Envío  -> { type: "message", text: "...", uid: "<firebase_uid>",
@@ -31,12 +31,12 @@
   ---------------------------------------------------------- */
   const CONFIG = {
     // En producción esto se reemplaza por la URL del servidor
-    // cloud/serverless (ej: wss://api.xens.app/ws), idealmente
+    // cloud/serverless (ej: wss://api.ainslup.app/ws), idealmente
     // inyectada por variable de entorno / build step, no hardcodeada.
     WS_URL: "ws://127.0.0.1:18000/ws",
     PROFILE_URL: "http://127.0.0.1:18000/api/profile",
 
-    // Xens Credits por plan (MENSUALES; se renuevan el 1º). El backend
+    // Ainslup Credits por plan (MENSUALES; se renuevan el 1º). El backend
     // (/api/profile) es la fuente autoritativa; esto solo es el fallback
     // si el perfil no llega. La prueba gratuita local (trial) usa además
     // un contador total único (300), informado por el estado de licencia.
@@ -169,7 +169,7 @@
     // límite de mensajes actual (viene de /api/profile; fallback en CONFIG)
     messageLimit: null,
 
-    // Xens Credits (modo cuenta; null = modo local con contador de trial)
+    // Ainslup Credits (modo cuenta; null = modo local con contador de trial)
     credits: null,
     creditsLimit: null,
     creditsResetSec: null,
@@ -249,7 +249,7 @@
   function activateLicense() {
     const key = el.licenseKey.value.trim();
     if (!key) {
-      setLicenseMsg("Escribe un serial, ej. XENS-PRO-365-...", true);
+      setLicenseMsg("Escribe un serial, ej. AINSLUP-PRO-365-...", true);
       return;
     }
     setLicenseMsg("Activando...", false);
@@ -276,11 +276,11 @@
       el.lockTitle.textContent = "Prueba gratuita agotada";
       el.lockText.textContent =
         `Usaste tus ${license.trial_used || 0}/${license.trial_limit || 0} chats de prueba. ` +
-        "Activa un serial para seguir usando XENS.";
+        "Activa un serial para seguir usando AINSLUP.";
     } else if (status === "expired") {
       el.lockTitle.textContent = "Licencia expirada";
       el.lockText.textContent =
-        "Tu licencia venció. Activa un serial nuevo para seguir usando XENS.";
+        "Tu licencia venció. Activa un serial nuevo para seguir usando AINSLUP.";
     } else {
       return;
     }
@@ -301,7 +301,7 @@
   function activateFromLock() {
     const key = el.lockLicenseKey.value.trim();
     if (!key) {
-      setLockMsg("Escribe un serial, ej. XENS-PRO-365-...", true);
+      setLockMsg("Escribe un serial, ej. AINSLUP-PRO-365-...", true);
       return;
     }
     setLockMsg("Activando...", false);
@@ -469,7 +469,7 @@
       return;
     }
     if (data.downloaded) {
-      updateBanner(true, "Descarga lista. Reinicia XENS para aplicar la actualización.", "Reiniciar", () => {
+      updateBanner(true, "Descarga lista. Reinicia AINSLUP para aplicar la actualización.", "Reiniciar", () => {
         updateBanner(true, "Reiniciando…", "…", null);
         sendToServer({ type: "restart_for_exe_update" });
       });
@@ -1031,13 +1031,13 @@
 
   function buildShareText(conv, msgs) {
     const lines = [
-      "XENS — Conversación compartida",
+      "AINSLUP — Conversación compartida",
       "Título: " + (conv.title || "Conversación"),
       "Fecha: " + new Date().toLocaleString("es-ES"),
       "",
     ];
     msgs.forEach((m) => {
-      lines.push((m.role === "user" ? "Tú: " : "Xens: ") + m.content, "");
+      lines.push((m.role === "user" ? "Tú: " : "Ainslup: ") + m.content, "");
     });
     return lines.join("\n");
   }
@@ -1171,13 +1171,13 @@
     el.statusDot.classList.remove("connecting", "disconnected");
 
     if (status === "connected") {
-      el.statusText.textContent = "XENS — activo";
+      el.statusText.textContent = "AINSLUP — activo";
     } else if (status === "connecting") {
       el.statusDot.classList.add("connecting");
-      el.statusText.textContent = "XENS — conectando...";
+      el.statusText.textContent = "AINSLUP — conectando...";
     } else {
       el.statusDot.classList.add("disconnected");
-      el.statusText.textContent = "XENS — desconectado";
+      el.statusText.textContent = "AINSLUP — desconectado";
     }
   }
 
@@ -1226,13 +1226,13 @@
     // Modal de Configuración: aquí sí se ve el detalle de uso
     if (el.settingsPlanBadge) el.settingsPlanBadge.textContent = badge;
     if (el.settingsUsageLabel) {
-      el.settingsUsageLabel.textContent = creditsMode() ? "Xens Credits (mensual)" : "Chats usados";
+      el.settingsUsageLabel.textContent = creditsMode() ? "Ainslup Credits (mensual)" : "Chats usados";
     }
     if (el.settingsUsageCount) {
       if (creditsMode()) {
         const used = state.creditsLimit - state.credits;
         el.settingsUsageCount.textContent =
-          `${formatCredits(state.credits)} / ${formatCredits(state.creditsLimit)} Xens Credits`;
+          `${formatCredits(state.credits)} / ${formatCredits(state.creditsLimit)} Ainslup Credits`;
       } else {
         el.settingsUsageCount.textContent = `${state.messageCount} / ${currentLimit()}`;
       }
@@ -1256,7 +1256,7 @@
     if (creditsMode()) {
       el.composerInput.placeholder = "Sin créditos";
       if(el.disclaimer) el.disclaimer.textContent =
-        "Agotaste tus Xens Credits del mes. Se renuevan el 1º. Mejora tu plan para obtener más.";
+        "Agotaste tus Ainslup Credits del mes. Se renuevan el 1º. Mejora tu plan para obtener más.";
     } else {
       el.composerInput.placeholder = "Límite de chats alcanzado";
       if(el.disclaimer) el.disclaimer.textContent =
@@ -1270,7 +1270,7 @@
     el.composerInner.classList.remove("locked");
     el.composerInput.placeholder = "Escribe un mensaje...";
     if(el.disclaimer) el.disclaimer.textContent =
-      "XENS puede cometer errores. Verifica la información importante.";
+      "AINSLUP puede cometer errores. Verifica la información importante.";
   }
 
   /* ----------------------------------------------------------
@@ -1514,7 +1514,7 @@
     if (state.reconnectAttempts >= CONFIG.MAX_RECONNECT_ATTEMPTS) {
       setConnectionUI("disconnected");
       addSystemNote(
-        "No se pudo conectar con el motor de XENS. Verifica que la aplicación local esté abierta."
+        "No se pudo conectar con el motor de AINSLUP. Verifica que la aplicación local esté abierta."
       );
       return;
     }
@@ -1721,7 +1721,7 @@
       state.socket.send(JSON.stringify(payload));
       return true;
     }
-    addSystemNote("Sin conexión con XENS. Intentando reconectar...");
+    addSystemNote("Sin conexión con AINSLUP. Intentando reconectar...");
     return false;
   }
 
@@ -1915,8 +1915,8 @@
     (function(){
       const sel=document.getElementById("modelSelector");
       if(!sel) return;
-      try{ const v=localStorage.getItem("xens.model"); if(v) sel.value=v; }catch{}
-      sel.addEventListener("change", ()=>{ try{localStorage.setItem("xens.model", sel.value);}catch{} });
+      try{ const v=localStorage.getItem("ainslup.model"); if(v) sel.value=v; }catch{}
+      sel.addEventListener("change", ()=>{ try{localStorage.setItem("ainslup.model", sel.value);}catch{} });
       window.XensUpdateModelSelector = function(plan){
         const tiers={free:["auto","Flash","Core"], lite:["auto","Flash","Core","Vision"], pro:["auto","Flash","Core","Think","Code","Vision"], premium:["auto","Flash","Core","Think","Code","Vision","Ultra"]};
         // Beta interna: modelos siempre los del Free.
@@ -2002,9 +2002,67 @@
         renderLicenseStatus(profile.license);
         showLicenseLock(profile.license);
       }
+      if (profile.paypal) renderSubscribe(profile.paypal);
     } catch (err) {
       // el motor local puede no exponer aún este endpoint; fallamos
       // en silencio y seguimos con el contador local en 0.
+    }
+  }
+
+  /* ---- suscripción PayPal (solo cuenta + backend configurado) ---- */
+  function renderSubscribe(paypal) {
+    const row = document.getElementById("subscribeRow");
+    const btns = document.getElementById("subscribeBtns");
+    const msg = document.getElementById("subscribeMsg");
+    if (!row || !btns) return;
+    const plans = (paypal && paypal.configured && paypal.plans) || [];
+    if (!plans.length) {
+      row.style.display = "none";
+      return;
+    }
+    row.style.display = "";
+    btns.innerHTML = "";
+    plans.forEach((plan) => {
+      if (plan === state.plan) return;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "license-btn";
+      b.textContent = "Pasar a " + plan.toUpperCase();
+      b.addEventListener("click", () => subscribePlan(plan));
+      btns.appendChild(b);
+    });
+    if (!btns.children.length && msg) msg.textContent = "Ya estás en el mejor plan disponible.";
+  }
+
+  async function subscribePlan(plan) {
+    const msg = document.getElementById("subscribeMsg");
+    const setMsg = (t) => { if (msg) msg.textContent = t; };
+    setMsg("Abriendo PayPal…");
+    let token = null;
+    try {
+      if (window.XensAuth && typeof window.XensAuth.getToken === "function") {
+        token = await window.XensAuth.getToken();
+      }
+    } catch (err) {}
+    if (!token) {
+      setMsg("Inicia sesión primero.");
+      return;
+    }
+    try {
+      const res = await fetch("http://127.0.0.1:18000/api/paypal/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ plan }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.approve_url) {
+        setMsg("Completa el pago en PayPal; tu plan se activa solo.");
+        window.open(data.approve_url, "_blank");
+      } else {
+        setMsg(data.error ? ("Error: " + data.error) : "No se pudo crear la suscripción.");
+      }
+    } catch (err) {
+      setMsg("Error de red con PayPal.");
     }
   }
 

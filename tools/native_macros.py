@@ -15,7 +15,7 @@ try:
 except ImportError:
     HAS_PYNPUT = False
 
-_DATA_DIR = Path.home() / ".xens" / "macros"
+_DATA_DIR = Path.home() / ".ainslup" / "macros"
 
 _SAFE_NAME_RE = "^[a-zA-Z0-9_\\- ]{1,64}$"
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")))
 
-from xens_assistant.memory import profile as pm
+from ainslup_assistant.memory import profile as pm
 
 
 def main():

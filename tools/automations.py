@@ -11,7 +11,7 @@ from .event_bus import EventBus, Event
 
 logger = logging.getLogger("xens.tools.automations")
 
-_RULES_PATH = Path.home() / ".xens" / "reactive_rules.json"
+_RULES_PATH = Path.home() / ".ainslup" / "reactive_rules.json"
 
 
 class Rule:

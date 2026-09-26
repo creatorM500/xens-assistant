@@ -3,7 +3,7 @@ from pathlib import Path
 from .registry import register
 
 logger = logging.getLogger("xens.tools.memory")
-STORE = Path.home() / ".xens" / "memory.json"
+STORE = Path.home() / ".ainslup" / "memory.json"
 
 def _load():
     if STORE.exists():

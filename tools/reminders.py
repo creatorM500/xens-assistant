@@ -1,7 +1,7 @@
 from .registry import register
 """
 reminders.py — Timer-based reminder system.
-Stores reminders in ~/.xens/reminders.json. Fires notifications via Toast or print.
+Stores reminders in ~/.ainslup/reminders.json. Fires notifications via Toast or print.
 """
 import json, logging, threading, time
 from datetime import datetime, timedelta
@@ -10,7 +10,7 @@ from typing import Optional
 
 logger = logging.getLogger("xens.tools.reminders")
 
-_REMINDERS_PATH = Path.home() / ".xens" / "reminders.json"
+_REMINDERS_PATH = Path.home() / ".ainslup" / "reminders.json"
 _reminders: list[dict] = []
 _checker_thread: Optional[threading.Thread] = None
 _checker_running = False
@@ -55,7 +55,7 @@ def _check_loop():
                     fired.append(r)
             _reminders[:] = [r for r in _reminders if not r.get("fired") or r.get("keep", False)]
         for r in fired:
-            _notify("Xens Reminder", r.get("message", "Reminder"))
+            _notify("Ainslup Reminder", r.get("message", "Reminder"))
             logger.info("Reminder fired: %s", r.get("message", ""))
         if fired:
             _save()

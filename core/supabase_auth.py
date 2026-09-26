@@ -64,8 +64,18 @@ class SupabaseAuth:
         # 2) fallback: validar contra Supabase Auth API (no necesita JWT_SECRET)
         try:
             from .config import config
-            url = ((config.get("supabase", {}) or {}).get("url") or "https://tzlbgoydgptlhspzdhfu.supabase.co").rstrip("/")
-            anon = ((config.get("supabase", {}) or {}).get("anon_key") or os.environ.get("SUPABASE_ANON_KEY") or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6bGJnb3lkZ3B0bGhzcHpkaGZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM4MTM5NTEsImV4cCI6MjA5OTM4OTk1MX0.euj51hQUQUkWLZHNV_DkX1d0c9qxp9gz5J_AVmjkm30")
+            scfg = (config.get("supabase", {}) or {})
+            if (os.environ.get("AINSLUP_ENV") or "").strip().lower() == "staging":
+                url = (os.environ.get("AINSLUP_SUPABASE_URL")
+                       or scfg.get("staging_url")
+                       or "https://mwqkfeyttegxhfvcsjcm.supabase.co").rstrip("/")
+                anon = (os.environ.get("AINSLUP_SUPABASE_ANON_KEY")
+                        or scfg.get("staging_anon_key") or "")
+            else:
+                url = (scfg.get("url") or "https://tzlbgoydgptlhspzdhfu.supabase.co").rstrip("/")
+                anon = (scfg.get("anon_key") or os.environ.get("SUPABASE_ANON_KEY") or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6bGJnb3lkZ3B0bGhzcHpkaGZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM4MTM5NTEsImV4cCI6MjA5OTM4OTk1MX0.euj51hQUQUkWLZHNV_DkX1d0c9qxp9gz5J_AVmjkm30")
+            if not anon:
+                return None
             import httpx
             r = await httpx.AsyncClient().get(f"{url}/auth/v1/user", headers={"apikey": anon, "Authorization": f"Bearer {token}"}, timeout=8)
             if r.status_code != 200:

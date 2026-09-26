@@ -1,6 +1,6 @@
 """web/app_window.py — Ventana nativa (WebView2) dentro del propio exe.
 
-Doble clic a Xens.exe --app y se abre la ventana de XENS sin navegador.
+Doble clic a Ainslup.exe --app y se abre la ventana de AINSLUP sin navegador.
 El servidor local ya debe estar corriendo (lo arranca __main__ antes).
 """
 import logging
@@ -23,7 +23,7 @@ def wait_for_server(url: str, timeout: float = 30.0) -> bool:
     return False
 
 
-def open_app_window(url: str = "http://127.0.0.1:18000", title: str = "XENS") -> None:
+def open_app_window(url: str = "http://127.0.0.1:18000", title: str = "AINSLUP") -> None:
     """Bloquea hasta cerrar la ventana. Llamar en el hilo principal."""
     try:
         import webview

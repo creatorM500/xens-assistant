@@ -1,7 +1,7 @@
 [package]
-name = "xens"
+name = "ainslup"
 version = "1.0.0"
-description = "XENS Assistant - app nativa Windows (Tauri + sidecar Python)"
+description = "AINSLUP Assistant - app nativa Windows (Tauri + sidecar Python)"
 authors = ["SvY Teck"]
 edition = "2021"
 

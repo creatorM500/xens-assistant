@@ -1,4 +1,4 @@
-# Xens Assistant
+# Ainslup Assistant
 
 Asistente de escritorio (JARVIS-class) con más de 120 herramientas que se ejecutan localmente, sin necesidad de internet para la mayoría de funciones.
 
@@ -28,7 +28,7 @@ Asistente de escritorio (JARVIS-class) con más de 120 herramientas que se ejecu
 
 ## Configuración del chat (opcional)
 
-Crea `~/.xens/config.json`:
+Crea `~/.ainslup/config.json`:
 
 ```json
 {
@@ -43,9 +43,9 @@ O define `MISTRAL_API_KEY` como variable de entorno. Sin clave, el chat no respo
 ## Desarrollo
 
 ```bash
-python -m xens_assistant --check --no-web   # diagnóstico
-python -m xens_assistant --no-web           # modo consola
-python -m PyInstaller Xens.spec             # build del .exe
+python -m ainslup_assistant --check --no-web   # diagnóstico
+python -m ainslup_assistant --no-web           # modo consola
+python -m PyInstaller Ainslup.spec             # build del .exe
 ```
 
 ## Arquitectura
@@ -57,4 +57,4 @@ python -m PyInstaller Xens.spec             # build del .exe
 - `web/` — servidor web local
 - `ui/` — interfaces de escritorio
 
-Datos locales del usuario en `~/.xens/`.
+Datos locales del usuario en `~/.ainslup/`.

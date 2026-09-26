@@ -13,9 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")))
 
-from xens_assistant.core import triggers as trig_mod
-from xens_assistant.core.triggers import TriggerManager
-from xens_assistant.core.llm import charge_ctx
+from ainslup_assistant.core import triggers as trig_mod
+from ainslup_assistant.core.triggers import TriggerManager
+from ainslup_assistant.core.llm import charge_ctx
 
 FIRED = []
 
@@ -105,7 +105,7 @@ async def main():
     tm2.unsubscribe(token)
 
     # --- tools/triggers.py handlers con charge_ctx ---
-    import xens_assistant.tools.triggers as ttrig
+    import ainslup_assistant.tools.triggers as ttrig
 
     charge_ctx.set(None)
     out = json.loads(await ttrig.create_trigger("x", "p", {"every_minutes": 30}))

@@ -260,7 +260,7 @@ def _get_window(title: str):
             return win
     except Exception:
         pass
-    # Fallback: coincidencia parcial del título (ej. "Opera" -> "XENS — Opera")
+    # Fallback: coincidencia parcial del título (ej. "Opera" -> "AINSLUP — Opera")
     try:
         for w in uia.GetRootControl().GetChildren():
             try:

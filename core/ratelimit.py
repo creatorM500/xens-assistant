@@ -7,7 +7,7 @@ from .tier_config import tier_config
 
 logger = logging.getLogger("xens.ratelimit")
 
-USAGE_DIR = Path.home() / ".xens"
+USAGE_DIR = Path.home() / ".ainslup"
 USAGE_FILE = USAGE_DIR / "usage.json"
 
 

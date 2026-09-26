@@ -1,5 +1,5 @@
 /* ============================================================
-   local-auth.js — Capa de "usuario" local de XENS
+   local-auth.js — Capa de "usuario" local de AINSLUP
    ------------------------------------------------------------
    Sustituye a Firebase Auth en la versión local del cliente:
    el usuario es la MÁQUINA, y su identidad/plan vienen de la
@@ -107,7 +107,7 @@
   // login antes de que el motor responda el perfil.
   user = {
     uid: "local-trial",
-    displayName: "XENS",
+    displayName: "AINSLUP",
     email: null,
     license: {},
   };

@@ -1,7 +1,7 @@
 from .registry import register
 """
 goals.py — Goal system: create, track, prioritize, and complete goals.
-Persistent JSON storage in ~/.xens/goals.json.
+Persistent JSON storage in ~/.ainslup/goals.json.
 Ported from Omni goal_system.py with cleanup and JSON returns.
 """
 import json, logging, threading, time, uuid
@@ -9,7 +9,7 @@ from pathlib import Path
 
 logger = logging.getLogger("xens.tools.goals")
 
-_GOALS_PATH = Path.home() / ".xens" / "goals.json"
+_GOALS_PATH = Path.home() / ".ainslup" / "goals.json"
 _LOCK = threading.Lock()
 
 

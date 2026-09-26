@@ -4,7 +4,7 @@ from ..core.tier_config import tier_config
 
 @register(
     name="sync_tier_config",
-    description="Sync tier/model configuration from a URL. Downloads and saves to ~/.xens/tier_config.json",
+    description="Sync tier/model configuration from a URL. Downloads and saves to ~/.ainslup/tier_config.json",
     parameters={
         "type": "object",
         "properties": {

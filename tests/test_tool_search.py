@@ -10,8 +10,8 @@ import traceback
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")))
 
-from xens_assistant.tools.registry import registry
-from xens_assistant.tools import tool_search as ts
+from ainslup_assistant.tools.registry import registry
+from ainslup_assistant.tools import tool_search as ts
 
 
 def test_lru_cap():

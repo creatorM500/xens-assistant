@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 from .registry import register
 
-DATA_DIR = os.path.join(os.path.expanduser("~"), ".xens")
+DATA_DIR = os.path.join(os.path.expanduser("~"), ".ainslup")
 HABITS_FILE = os.path.join(DATA_DIR, "habits.json")
 
 

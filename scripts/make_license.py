@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""make_license.py — generate serial keys for Xens Assistant (seller/admin side).
+"""make_license.py — generate serial keys for Ainslup Assistant (seller/admin side).
 
 Usage:
     python make_license.py --tier pro --days 365                     # unbound key (binds on activation)
@@ -17,13 +17,13 @@ Notes:
 import argparse, os, sys
 from pathlib import Path
 
-p = argparse.ArgumentParser(description="Generate Xens Assistant serial keys")
+p = argparse.ArgumentParser(description="Generate Ainslup Assistant serial keys")
 p.add_argument("--tier", default="PRO", help="free | pro | premium (default PRO)")
 p.add_argument("--days", type=int, default=365, help="Validity in days; 0 = lifetime")
 p.add_argument("--hwid", default="", help="8-hex machine id to bind (default 00000000 = any machine)")
 p.add_argument("--name", default="", help="Customer name embedded in the key")
 p.add_argument("--count", type=int, default=1, help="How many keys to generate")
-p.add_argument("--secret", default="", help="Secret signing key (must match Xens config)")
+p.add_argument("--secret", default="", help="Secret signing key (must match Ainslup config)")
 p.add_argument("--show-hwid", action="store_true", help="Print this machine's 8-hex HWID")
 args = p.parse_args()
 
@@ -43,7 +43,7 @@ def _main():
     for _ in range(max(1, args.count)):
         keys.append(issue_serial(tier=args.tier, days=args.days, hwid=args.hwid or "00000000", name=args.name))
     print("\n".join(keys))
-    print(f"\n# {len(keys)} key(s) issued. In the Xens terminal, the buyer types: /activate <key>")
+    print(f"\n# {len(keys)} key(s) issued. In the Ainslup terminal, the buyer types: /activate <key>")
 
 
 if __name__ == "__main__":

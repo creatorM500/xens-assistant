@@ -10,7 +10,7 @@ from .event_bus import EventBus
 
 logger = logging.getLogger("xens.tools.modes")
 
-_DATA_DIR = Path.home() / ".xens"
+_DATA_DIR = Path.home() / ".ainslup"
 _MODO_PATH = _DATA_DIR / "mode.json"
 _STATE_PATH = _DATA_DIR / "state.json"
 

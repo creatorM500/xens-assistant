@@ -1,5 +1,5 @@
 /**
- * Xens license edge function — Codex-style licensing + LLM proxy.
+ * Ainslup license edge function — Codex-style licensing + LLM proxy.
  * Credits 5k/15k/35k/125k, Lite tier, fallbacks, stream & credits endpoints.
  */
 const enc = new TextEncoder();

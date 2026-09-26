@@ -2,7 +2,7 @@ import json, os, re, time, math
 from typing import Optional
 from .registry import register
 
-DATA_DIR = os.path.join(os.path.expanduser("~"), ".xens")
+DATA_DIR = os.path.join(os.path.expanduser("~"), ".ainslup")
 INDEX_FILE = os.path.join(DATA_DIR, "rag_index.json")
 
 def _load_index():

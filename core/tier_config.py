@@ -4,7 +4,7 @@ from typing import Optional
 
 logger = logging.getLogger("xens.tier")
 
-CONFIG_DIR = Path.home() / ".xens"
+CONFIG_DIR = Path.home() / ".ainslup"
 TIER_FILE = CONFIG_DIR / "tier_config.json"
 
 # Facturación unificada OpenRouter: todos los alias van por OpenRouter.
@@ -134,9 +134,9 @@ class TierConfig:
         return [m.get("alias") for m in self.get_models(self.models_tier(tier)) if m.get("alias")]
 
     # ---- Beta interna: plan superior con modelos del Free ----
-    # beta_plan vive en ~/.xens/config.json ("beta_plan": "pro"|"" ).
+    # beta_plan vive en ~/.ainslup/config.json ("beta_plan": "pro"|"" ).
     # Cualquiera puede elegirlo desde Configuración; sirve para probar
-    # XENS (créditos/tools del plan) sin gastar modelos grandes.
+    # Ainslup (créditos/tools del plan) sin gastar modelos grandes.
     def get_beta_plan(self) -> str:
         try:
             from .config import CONFIG_FILE

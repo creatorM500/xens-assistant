@@ -1,20 +1,21 @@
 /**
- * Xens paypal-webhook — Registra suscripciones/planes de cuenta.
+ * Ainslup paypal-webhook — Registra suscripciones/planes de cuenta.
  *
- * Recibe eventos de PayPal y hace upsert en la tabla `subscriptions`
- * (uid -> plan). El motor local consulta esa tabla con el token de
- * Firebase del usuario (RLS: solo su fila) para asignar el tier.
+ * Recibe eventos de PayPal (Subscriptions API v1) y:
+ *   1. hace upsert en la tabla `subscriptions` (uid -> plan, auditoría), y
+ *   2. escribe el tier en `app_metadata` del usuario vía Auth Admin API,
+ *      para que su JWT lo traiga y el edge/motor le den ese plan sin serial.
  *
- * Eventos soportados (subscriptions API v2 + billing v1):
- *   BILLING.SUBSCRIPTION.ACTIVATED    -> activa el plan
- *   PAYMENT.SALE.COMPLETED            -> confirma el cobro
- *   BILLING.SUBSCRIPTION.CANCELLED    -> baja el plan
- *   BILLING.SUBSCRIPTION.SUSPENDED    -> suspende el plan
+ * Eventos soportados:
+ *   BILLING.SUBSCRIPTION.ACTIVATED/APPROVED -> activa el plan
+ *   PAYMENT.SALE.COMPLETED                  -> confirma el cobro
+ *   BILLING.SUBSCRIPTION.CANCELLED/SUSPENDED -> baja a free
  *
- * Secrets (supabase secrets set --env XENS):
+ * Secrets (supabase secrets set):
  *   XENS_PAYPAL_CLIENT_ID / XENS_PAYPAL_CLIENT_SECRET (modo sandbox por defecto)
  *   XENS_PAYPAL_MODE           "live" para producción
- *   XENS_PAYPAL_PLAN_PRO_ID / XENS_PAYPAL_PLAN_PREMIUM_ID (ids de plan de suscripción)
+ *   XENS_PAYPAL_PLAN_LITE_ID / XENS_PAYPAL_PLAN_PRO_ID / XENS_PAYPAL_PLAN_PREMIUM_ID
+ *   XENS_PAYPAL_WEBHOOK_ID     (verificación de firma)
  *
  * La verificación del webhook se hace con la API de PayPal
  * /v1/notifications/verify-webhook-signature.
@@ -26,6 +27,7 @@ const CLIENT_ID = Deno.env.get("XENS_PAYPAL_CLIENT_ID") ?? "";
 const CLIENT_SECRET = Deno.env.get("XENS_PAYPAL_CLIENT_SECRET") ?? "";
 const MODE = Deno.env.get("XENS_PAYPAL_MODE") === "live" ? "live" : "sandbox";
 const API = MODE === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
+const PLAN_LITE = Deno.env.get("XENS_PAYPAL_PLAN_LITE_ID") ?? "";
 const PLAN_PRO = Deno.env.get("XENS_PAYPAL_PLAN_PRO_ID") ?? "";
 const PLAN_PREMIUM = Deno.env.get("XENS_PAYPAL_PLAN_PREMIUM_ID") ?? "";
 
@@ -110,7 +112,37 @@ async function upsertSubscription(uid: string, plan: string, status: string, per
 function planFromId(planId: string): string {
   if (planId && planId === PLAN_PREMIUM) return "premium";
   if (planId && planId === PLAN_PRO) return "pro";
+  if (planId && planId === PLAN_LITE) return "lite";
   return "free";
+}
+
+/** Escribe el tier en app_metadata del usuario (el JWT lo trae después). */
+async function setUserTier(uid: string, tier: string): Promise<boolean> {
+  if (!uid) return false;
+  try {
+    const g = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${uid}`, {
+      headers: { apikey: SERVICE_ROLE, authorization: `Bearer ${SERVICE_ROLE}` },
+    });
+    if (g.status !== 200) {
+      console.error("admin get user falló:", g.status);
+      return false;
+    }
+    const user = await g.json().catch(() => ({}));
+    const meta = { ...(user?.app_metadata ?? {}), tier };
+    const p = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${uid}`, {
+      method: "PUT",
+      headers: { apikey: SERVICE_ROLE, authorization: `Bearer ${SERVICE_ROLE}`, "content-type": "application/json" },
+      body: JSON.stringify({ app_metadata: meta }),
+    });
+    if (p.status >= 400) {
+      console.error("admin set tier falló:", p.status, await p.text().catch(() => ""));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("setUserTier falló:", e);
+    return false;
+  }
 }
 
 function handleEvent(event: any): Promise<boolean> {
@@ -121,24 +153,34 @@ function handleEvent(event: any): Promise<boolean> {
   const agreementId = res.billing_agreement_id ?? "";
   const customRaw = String(res.custom_id ?? res.custom ?? "");
 
-  // Subscripciones v2
+  // Subscripciones v1 (custom_id = "uid:plan" puesto al crearla)
   if (type.startsWith("BILLING.SUBSCRIPTION.")) {
     const uid = String(customRaw ?? "").split(":")[0];
-    const plan = planFromId(String(res.plan_id ?? ""));
+    const hinted = String(customRaw ?? "").includes(":") ? String(customRaw).split(":")[1] : "";
+    const plan = planFromId(String(res.plan_id ?? "")) !== "free"
+      ? planFromId(String(res.plan_id ?? ""))
+      : (["lite", "pro", "premium"].includes(hinted) ? hinted : "free");
     const periodEnd = res.billing_info?.next_billing_time ?? null;
     if (type === "BILLING.SUBSCRIPTION.ACTIVATED" || type === "BILLING.SUBSCRIPTION.APPROVED") {
-      return upsertSubscription(uid, plan, "active", periodEnd);
+      const ok = await upsertSubscription(uid, plan, "active", periodEnd);
+      await setUserTier(uid, plan);
+      return ok;
     }
     if (type === "BILLING.SUBSCRIPTION.CANCELLED" || type === "BILLING.SUBSCRIPTION.SUSPENDED") {
-      return upsertSubscription(uid, plan || "free", "cancelled", null);
+      const ok = await upsertSubscription(uid, plan || "free", "cancelled", null);
+      await setUserTier(uid, "free");
+      return ok;
     }
     return Promise.resolve(true); // otros eventos: ignorar
   }
 
   if (type === "PAYMENT.SALE.COMPLETED") {
     const uid = String(customRaw ?? "").split(":")[0];
-    const plan = String(customRaw ?? "").includes(":") ? String(customRaw).split(":")[1] : planFromId(String(res.billing_agreement_id ?? ""));
-    return upsertSubscription(uid, plan || "free", "active", null);
+    const hinted = String(customRaw ?? "").includes(":") ? String(customRaw).split(":")[1] : "";
+    const plan = ["lite", "pro", "premium"].includes(hinted) ? hinted : "free";
+    const ok = await upsertSubscription(uid, plan, "active", null);
+    await setUserTier(uid, plan);
+    return ok;
   }
 
   return Promise.resolve(true); // eventos no relevantes: 200 para no reintentar

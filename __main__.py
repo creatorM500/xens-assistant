@@ -22,14 +22,14 @@ logger = logging.getLogger("xens")
 
 def _setup_file_logging():
     """Log a archivo: en modo app no hay consola visible y los crashes
-    quedaban ciegos. Guarda en ~/.xens/logs/xens-YYYYMMDD.log + excepciones
+    quedaban ciegos. Guarda en ~/.ainslup/logs/ainslup-YYYYMMDD.log + excepciones
     no capturadas (hilo principal y threads)."""
     try:
         from pathlib import Path
-        logdir = Path.home() / ".xens" / "logs"
+        logdir = Path.home() / ".ainslup" / "logs"
         logdir.mkdir(parents=True, exist_ok=True)
         import time
-        fh = logging.FileHandler(logdir / f"xens-{time.strftime('%Y%m%d')}.log", encoding="utf-8")
+        fh = logging.FileHandler(logdir / f"ainslup-{time.strftime('%Y%m%d')}.log", encoding="utf-8")
         fh.setLevel(logging.INFO)
         fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
         logging.getLogger().addHandler(fh)
@@ -83,7 +83,7 @@ async def _run_web(session):
 def _run_app(session):
     """Modo app nativa: servidor en segundo plano + ventana WebView2.
 
-    Un solo exe, doble clic y se abre XENS. Al cerrar la ventana termina todo.
+    Un solo exe, doble clic y se abre AINSLUP. Al cerrar la ventana termina todo.
     """
     from .web.server import WebServer as _WS
 
@@ -138,7 +138,7 @@ def _check() -> int:
     """Diagnostics: print state and exit."""
     _register_tools()
     tier = registry.get_tier()
-    print(f"Xens Assistant v{get_current_version()}")
+    print(f"Ainslup Assistant v{get_current_version()}")
     if LOG_DIR:
         print(f"  logs: {LOG_DIR} (manda el .log si algo falla)")
     print(f"  tools: {registry.count}/{registry.count_total} available (tier: {tier}, {registry.count_hidden} hidden)")
@@ -163,7 +163,7 @@ def _check() -> int:
     return 0
 
 def main():
-    parser = argparse.ArgumentParser(prog="xens", description="Xens Assistant CLI")
+    parser = argparse.ArgumentParser(prog="ainslup", description="Ainslup Assistant CLI")
     parser.add_argument("--check", action="store_true", help="Run diagnostics and exit")
     parser.add_argument("--no-web", action="store_true", help="Disable the web UI server")
     parser.add_argument("--headless", action="store_true", help="UI-only mode: web server without console chat")
@@ -189,7 +189,7 @@ def main():
             if lic.get_state()["status"] not in ("licensed", "unlocked"):
                 r = lic.ensure_free_license()
                 if r.get("success"):
-                    print("  plan: Free activado automáticamente (5.000 Xens Credits/mes).")
+                    print("  plan: Free activado automáticamente (5.000 Ainslup Credits/mes).")
         except Exception as e:
             logger.warning(f"Free auto-provision failed: {e}")
         lic_state = lic.get_state()
@@ -197,7 +197,7 @@ def main():
             registry.set_tier(lic.effective_tier())
             logger.info("License '%s' active — tier set to '%s'", lic_state["status"], registry.get_tier())
         if lic_state["status"] == "locked":
-            print(f"\n  \033[31mXens is locked:\033[0m trial used up ({lic_state['trial_used']}/{lic_state['trial_limit']}).")
+            print(f"\n  \033[31mAinslup is locked:\033[0m trial used up ({lic_state['trial_used']}/{lic_state['trial_limit']}).")
             print(f"  Type \033[33m/activate <serial-key>\033[0m to unlock (or contact the seller).\n")
 
     if args.check:
@@ -207,26 +207,33 @@ def main():
     if not API_KEY and not lic.get_state().get("online"):
         print("\n  \033[33mWarning:\033[0m No API key found and no online plan. Chat will not work.")
         print("  Connect to the internet once so your Free plan activates automatically,")
-        print("  or set MISTRAL_API_KEY / add one to ~/.xens/config.json.")
+        print("  or set MISTRAL_API_KEY / add one to ~/.ainslup/config.json.")
         print("  You can still test tools: /tools, /test <tool> [args]\n")
 
     # Check for updates in background (git repos use git pull; others use ZIP feed)
     if os.environ.get("XENS_AUTO_UPDATE", "1") == "1":
-        update_url = (
-            os.environ.get("XENS_UPDATE_URL")
-            or (config.get("updater", {}) or {}).get("url", "").strip()
-            or "https://tzlbgoydgptlhspzdhfu.supabase.co/storage/v1/object/public/xens-updates"
-        )
+        if (os.environ.get("AINSLUP_ENV") or "").strip().lower() == "staging":
+            update_url = (
+                os.environ.get("AINSLUP_UPDATE_URL")
+                or "https://mwqkfeyttegxhfvcsjcm.supabase.co/storage/v1/object/public/xens-updates-staging"
+            )
+        else:
+            update_url = (
+                os.environ.get("AINSLUP_UPDATE_URL")
+                or os.environ.get("XENS_UPDATE_URL")
+                or (config.get("updater", {}) or {}).get("url", "").strip()
+                or "https://tzlbgoydgptlhspzdhfu.supabase.co/storage/v1/object/public/xens-updates"
+            )
         set_update_url(update_url)
         threading.Thread(target=_check_updates, daemon=True).start()
 
     session = Session("default")
 
-    logger.info(f"Xens Assistant v{get_current_version()} starting — {registry.count}/{registry.count_total} tools available (tier: {registry.get_tier()})")
+    logger.info(f"Ainslup Assistant v{get_current_version()} starting — {registry.count}/{registry.count_total} tools available (tier: {registry.get_tier()})")
 
     try:
         if args.app:
-            logger.info("Native app mode — ventana XENS")
+            logger.info("Native app mode — ventana AINSLUP")
             _run_app(session)
         elif args.headless:
             logger.info(f"Headless UI mode — Web UI at http://127.0.0.1:{PORT}")

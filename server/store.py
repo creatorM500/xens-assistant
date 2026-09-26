@@ -48,7 +48,7 @@ def new_serial(tier: str, days: int, name: str = "", count: int = 1) -> list[str
     serials = load_serials()
     codes = []
     for _ in range(max(1, count)):
-        code = "XENS-" + "-".join(
+        code = "AINSLUP-" + "-".join(
             secrets.token_hex(4).upper() for _ in range(4)
         )
         serials[code] = {

@@ -1,6 +1,6 @@
 ﻿import json
 import pytest
-from xens_assistant.tools.registry import ToolRegistry
+from ainslup_assistant.tools.registry import ToolRegistry
 
 
 def make_registry():

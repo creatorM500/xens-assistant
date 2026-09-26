@@ -11,7 +11,7 @@ from typing import Optional
 
 logger = logging.getLogger("xens.tools.knowledge")
 
-_DB_PATH = Path.home() / ".xens" / "knowledge" / "knowledge.db"
+_DB_PATH = Path.home() / ".ainslup" / "knowledge" / "knowledge.db"
 
 
 class KnowledgeGraph:

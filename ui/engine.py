@@ -12,7 +12,7 @@ from PySide6.QtGui import (
 
 logger = __import__("logging").getLogger("xens.ui.engine")
 
-MEMORY_DIR = Path.home() / ".xens"
+MEMORY_DIR = Path.home() / ".ainslup"
 FIGURES_DIR = MEMORY_DIR / "figures"
 
 VERTEX_SHADER = """

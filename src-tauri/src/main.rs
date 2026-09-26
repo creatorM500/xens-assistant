@@ -4,15 +4,15 @@ use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandEvent;
 
-/// Intenta arrancar el backend Python como sidecar `binaries/Xens --headless`.
+/// Intenta arrancar el backend Python como sidecar `binaries/Ainslup --headless`.
 /// En dev (sin sidecar empaquetado) no falla: la UI apunta a
 /// http://127.0.0.1:18000 que puedes levantar con `cli_entry.py --headless`.
 fn spawn_backend(app: &tauri::AppHandle) {
-    let sidecar = app.shell().sidecar("Xens");
+    let sidecar = app.shell().sidecar("Ainslup");
     let cmd = match sidecar {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[xens] sidecar no disponible (dev?): {e}");
+            eprintln!("[ainslup] sidecar no disponible (dev?): {e}");
             return;
         }
     };
@@ -20,7 +20,7 @@ fn spawn_backend(app: &tauri::AppHandle) {
     let (_rx, _child) = match cmd.spawn() {
         Ok(pair) => pair,
         Err(e) => {
-            eprintln!("[xens] no se pudo lanzar backend: {e}");
+            eprintln!("[ainslup] no se pudo lanzar backend: {e}");
             return;
         }
     };
@@ -29,7 +29,7 @@ fn spawn_backend(app: &tauri::AppHandle) {
         let mut rx = _rx;
         while let Some(ev) = rx.recv().await {
             if let CommandEvent::Stderr(line) = ev {
-                eprintln!("[xens-backend] {}", String::from_utf8_lossy(&line));
+                eprintln!("[ainslup-backend] {}", String::from_utf8_lossy(&line));
             }
         }
     });
@@ -52,5 +52,5 @@ fn main() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error running XENS app");
+        .expect("error running AINSLUP app");
 }

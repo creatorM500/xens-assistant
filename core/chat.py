@@ -84,7 +84,7 @@ class ConsoleChat:
         tier = registry.get_tier()
         used, limit = ratelimiter.get_usage(tier)
         providers = self._provider_status()
-        print(f"\n  {_BOLD}Xens Assistant CLI v{get_current_version()}{_RESET}")
+        print(f"\n  {_BOLD}Ainslup Assistant CLI v{get_current_version()}{_RESET}")
         print(f"  {_GRAY}License:{_RESET} {lic.format_status_line()}  "
               f"{_GRAY}Tools:{_RESET} {registry.count}/{registry.count_total}  "
               f"{_GRAY}Tier:{_RESET} {tier}  {_GRAY}Usage:{_RESET} {used}/{limit} req")
@@ -177,12 +177,12 @@ class ConsoleChat:
 
         if not self._session.messages:
             welcome = f"Hey {name}. Good to see you. What are we working on today?"
-            print(f"\n  {_CYAN}Xens:{_RESET} {welcome}\n")
+            print(f"\n  {_CYAN}Ainslup:{_RESET} {welcome}\n")
             self._session.add("assistant", welcome)
             messages.append({"role": "assistant", "content": welcome})
         else:
             count = profile.interaction_count + 1
-            print(f"\n  {_CYAN}Xens{_RESET} — {count} interactions so far.\n")
+            print(f"\n  {_CYAN}Ainslup{_RESET} — {count} interactions so far.\n")
 
         while True:
             sug = get_proactive().pop_suggestion()
@@ -193,7 +193,7 @@ class ConsoleChat:
                     f"  {_YELLOW}You [{registry.get_tier()}]:{_RESET} "
                 )
             except (EOFError, KeyboardInterrupt):
-                print(f"\n  {_CYAN}Xens:{_RESET} Later, {name}.\n")
+                print(f"\n  {_CYAN}Ainslup:{_RESET} Later, {name}.\n")
                 self._session.flush()
                 profile.flush()
                 break
@@ -202,7 +202,7 @@ class ConsoleChat:
                 continue
 
             if raw.lower() in ("exit", "quit", "bye"):
-                print(f"  {_CYAN}Xens:{_RESET} Later, {name}.\n")
+                print(f"  {_CYAN}Ainslup:{_RESET} Later, {name}.\n")
                 self._session.flush()
                 profile.flush()
                 break
@@ -215,7 +215,7 @@ class ConsoleChat:
             if not gate["allowed"]:
                 st = gate["state"]
                 if st["status"] == "locked":
-                    print(f"  {_RED}Trial used up ({st['trial_used']}/{st['trial_limit']}). Activate Xens to keep using it.{_RESET}")
+                    print(f"  {_RED}Trial used up ({st['trial_used']}/{st['trial_limit']}). Activate Ainslup to keep using it.{_RESET}")
                     print(f"  {_YELLOW}Type /activate <serial-key> (or contact the seller to buy one).{_RESET}\n")
                 elif st["status"] == "expired":
                     print(f"  {_RED}Your license expired. Type /activate with a new key.{_RESET}\n")
@@ -277,7 +277,7 @@ class ConsoleChat:
             self._session.clear()
             messages.clear()
             messages.append(self._build_messages()[0])
-            print(f"  {_CYAN}Xens:{_RESET} Conversation cleared.\n")
+            print(f"  {_CYAN}Ainslup:{_RESET} Conversation cleared.\n")
 
         elif cmd == "profile":
             profile.load()
@@ -514,7 +514,7 @@ class ConsoleChat:
         elif cmd == "activate":
             if not args:
                 print(f"  {_YELLOW}Usage: /activate <serial-key>{_RESET}\n"
-                      f"  {_GRAY}Example: /activate XENS-PRO-3650-00000000-04b596c1c950{_RESET}\n"
+                      f"  {_GRAY}Example: /activate AINSLUP-PRO-3650-00000000-04b596c1c950{_RESET}\n"
                       f"  {_GRAY}With a license server set, the key is validated online (Codex-style).{_RESET}\n")
                 return
             raw_key = " ".join(args)
@@ -592,7 +592,7 @@ class ConsoleChat:
             tier = registry.get_tier()
             used, limit = ratelimiter.get_usage(tier)
             uptime = time.monotonic() - self._started
-            print(f"  {_CYAN}Xens status:{_RESET}")
+            print(f"  {_CYAN}Ainslup status:{_RESET}")
             print(f"    version:   {get_current_version()}")
             print(f"    license:   {lic.format_status_line()}")
             print(f"    session:   {self._session.messages.__class__.__name__} ({len(self._session.messages)} messages)")
@@ -623,7 +623,7 @@ class ConsoleChat:
             msgs = self._session.messages
             print(f"  {_CYAN}Recent messages ({min(n, len(msgs))} of {len(msgs)}):{_RESET}")
             for m in msgs[-n:]:
-                role = "You  " if m["role"] == "user" else "Xens "
+                role = "You  " if m["role"] == "user" else "Ainslup "
                 content = (m.get("content") or "").replace("\n", " ")[:120]
                 print(f"    {role} {content}")
             print()
@@ -633,7 +633,7 @@ class ConsoleChat:
   {_BOLD}Commands:{_RESET}
   {_GRAY}/clear{_RESET}           Reset conversation
   {_GRAY}/history [n]{_RESET}     Show last n conversation messages
-  {_GRAY}/profile{_RESET}         Show what Xens remembers about you
+  {_GRAY}/profile{_RESET}         Show what Ainslup remembers about you
   {_GRAY}/tools [query]{_RESET}   List available tools (filter optional)
   {_GRAY}/find <query>{_RESET}    Search tools by name or description
   {_GRAY}/info <tool>{_RESET}     Full tool card: schema, defaults, tier, timeout

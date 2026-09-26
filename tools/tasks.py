@@ -2,7 +2,7 @@
 
 start_task lanza un loop LLM independiente que continúa el contexto de la
 conversación actual sin bloquearla: el usuario puede seguir chateando
-mientras la tarea corre. Los pasos consumen Xens Credits normalmente
+  mientras la tarea corre. Los pasos consumen Ainslup Credits normalmente
 (uid heredado del contexto del orquestador).
 
 Semántica: la tarea corre turnos (cada turno = un run_tool_loop). Si el
@@ -22,7 +22,7 @@ TASK_MAX_STEPS = 8          # pasos max. por turno
 TASK_MAX_TURNS = 20         # turnos max. totales
 TASK_IDLE_TIMEOUT = 180     # segundos esperando input antes de cerrarse
 TASK_AGENT_SYSTEM = (
-    "Eres un agente de tareas de Xens Assistant trabajando EN SEGUNDO PLANO "
+    "Eres un agente de tareas de Ainslup Assistant trabajando EN SEGUNDO PLANO "
     "sobre: {name}\n"
     "Continúa desde el contexto de la conversación. Trabaja de forma "
     "autónoma con las herramientas disponibles. Cuando completes la tarea, "

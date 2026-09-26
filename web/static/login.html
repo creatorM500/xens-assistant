@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Iniciar sesión — XENS</title>
+<title>Iniciar sesión — AINSLUP</title>
 <link rel="stylesheet" href="site.css">
 </head>
 <body>
 
   <div class="auth-shell">
     <div class="auth-card">
-      <div class="auth-brand"><a href="landing.html">XENS</a></div>
+      <div class="auth-brand"><a href="landing.html">AINSLUP</a></div>
       <p class="auth-subtitle">Accede a tu asistente de IA</p>
 
       <div class="auth-tabs">
@@ -65,7 +65,7 @@
       <p class="auth-error" id="authError"></p>
       <div class="auth-divider">o</div>
       <a href="index.html" class="btn btn-ghost btn-block">Continuar sin cuenta (plan Free)</a>
-      <p class="auth-footnote">Al continuar aceptas los <a href="terms.html">Términos</a> y la <a href="privacy.html">Privacidad</a> de XENS.</p>
+      <p class="auth-footnote">Al continuar aceptas los <a href="terms.html">Términos</a> y la <a href="privacy.html">Privacidad</a> de AINSLUP.</p>
     </div>
   </div>
 
@@ -75,9 +75,18 @@
        soportado si firebase-config.js existe. -->
   <script src="local-auth.js"></script>
   <script src="supabase-config.js" onerror="window.__NO_SUPABASE__ = true"></script>
+  <script src="supabase-config.staging.js" onerror="window.__NO_STAGING__ = true"></script>
   <script src="firebase-config.js" onerror="window.__NO_FIREBASE__ = true"></script>
   <script>
     (function () {
+      // Staging: ?staging=1 o localStorage ainslup.env=staging + config staging presente.
+      try {
+        if (new URLSearchParams(window.location.search).has("staging") || localStorage.getItem("ainslup.env") === "staging") {
+          if (!window.__NO_STAGING__ && window.SUPABASE_CONFIG_STAGING && window.SUPABASE_CONFIG_STAGING.url) {
+            window.SUPABASE_CONFIG = window.SUPABASE_CONFIG_STAGING;
+          }
+        }
+      } catch (err) {}
       if (!window.__NO_SUPABASE__ && window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.url) {
         var s1 = document.createElement("script");
         s1.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js";

@@ -24,7 +24,7 @@ def get_http_client():
             timeout=60,
             follow_redirects=True,
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
-            headers={"User-Agent": "XensAssistant/1.0"},
+            headers={"User-Agent": "AinslupAssistant/1.0"},
         )
         _http_clients[loop] = client
     return client

@@ -3,7 +3,7 @@
 Usage:
     python -m server.manage gen --tier pro --days 365 --name Maria [--count 5]
     python -m server.manage list
-    python -m server.manage revoke XENS-XXXX-...
+    python -m server.manage revoke AINSLUP-XXXX-...
     python -m server.manage nuke        (wipe all serials/users)
 """
 import argparse, sys
@@ -46,7 +46,7 @@ def cmd_nuke(_args):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="manage", description="Admin CLI for Xens reference license server")
+    ap = argparse.ArgumentParser(prog="manage", description="Admin CLI for Ainslup reference license server")
     sub = ap.add_subparsers(dest="cmd")
 
     g = sub.add_parser("gen", help="Create serial key(s)")

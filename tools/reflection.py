@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 from .registry import register
 
-DATA_DIR = os.path.join(os.path.expanduser("~"), ".xens")
+DATA_DIR = os.path.join(os.path.expanduser("~"), ".ainslup")
 REFLECTIONS_FILE = os.path.join(DATA_DIR, "reflections.json")
 
 

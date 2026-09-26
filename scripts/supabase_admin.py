@@ -1,12 +1,12 @@
 """
-scripts/supabase_admin.py — Emisión y gestión de seriales Xens en Supabase.
+scripts/supabase_admin.py — Emisión y gestión de seriales Ainslup en Supabase.
 
-Genera keys XENS-... (misma firma HMAC que core.license) y las inserta en la
+    Genera keys AINSLUP-... (misma firma HMAC que core.license) y las inserta en la
 tabla licenses del proyecto. La activacion online (Edge Function) valida la key
 contra esa tabla, asi que T O D O serial vendido debe generarse con este script
 (o con make_license.py + insert manual).
 
-Credenciales: ~/.xens/supabase.json  ({"management_pat", "service_role", "project_ref"})
+Credenciales: ~/.ainslup/supabase.json  ({"management_pat", "service_role", "project_ref"})
   o entorno:  XENS_SUPABASE_TOKEN  (management PAT)
 
 Uso:
@@ -14,9 +14,9 @@ Uso:
     python scripts/supabase_admin.py gen --tier FREE --days 0 --count 5
     python scripts/supabase_admin.py list
     python scripts/supabase_admin.py list --tier pro
-    python scripts/supabase_admin.py check XENS-PRO-365-... 
-    python scripts/supabase_admin.py revoke XENS-PRO-365-...
-    python scripts/supabase_admin.py usage XENS-PRO-365-...
+    python scripts/supabase_admin.py check AINSLUP-PRO-365-...
+    python scripts/supabase_admin.py revoke AINSLUP-PRO-365-...
+    python scripts/supabase_admin.py usage AINSLUP-PRO-365-...
 """
 import argparse, json, os, sys
 from pathlib import Path
@@ -35,12 +35,12 @@ def _creds() -> dict:
     if env_pat:
         return {"management_pat": env_pat, "project_ref": os.environ.get("XENS_PROJECT_REF", "tzlbgoydgptlhspzdhfu")}
     try:
-        data = json.loads((Path.home() / ".xens" / "supabase.json").read_text(encoding="utf-8"))
+        data = json.loads((Path.home() / ".ainslup" / "supabase.json").read_text(encoding="utf-8"))
         if data.get("management_pat"):
             return data
     except Exception as e:
         print(f"! No credentials: {e}")
-    sys.exit("Set XENS_SUPABASE_TOKEN or create ~/.xens/supabase.json")
+    sys.exit("Set XENS_SUPABASE_TOKEN or create ~/.ainslup/supabase.json")
 
 
 def _headers(creds: dict) -> dict:
@@ -133,7 +133,7 @@ def cmd_usage(creds: dict, args) -> None:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Xens serial admin (Supabase)")
+    ap = argparse.ArgumentParser(description="Ainslup serial admin (Supabase)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("gen", help="generate + insert serials")

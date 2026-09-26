@@ -1,7 +1,9 @@
 import os, json
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".xens"
+from .paths import DATA_HOME  # noqa: F401  (ejecuta migración ~/.xens -> ~/.ainslup)
+
+CONFIG_DIR = DATA_HOME
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULTS = {

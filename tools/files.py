@@ -42,9 +42,9 @@ def _resolve(path_str, base=None):
         if p.is_relative_to(Path(b)):
             raise PermissionError(f"Access denied to system directory: {b}")
 
-    xens_state = Path(_HOME) / ".xens"
+    xens_state = Path(_HOME) / ".ainslup"
     if p.is_relative_to(xens_state):
-        raise PermissionError("Access denied to Xens internal state (~/.xens)")
+        raise PermissionError("Access denied to Ainslup internal state (~/.ainslup)")
 
     return p
 

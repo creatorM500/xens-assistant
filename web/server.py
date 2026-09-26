@@ -27,9 +27,9 @@ def _static_dir() -> Path:
     """Carpeta web/static en fuente y en exe congelado.
 
     En el bundle PyInstaller el código corre como
-    ``_MEIPASS/xens_assistant/web/server.py`` mientras que los datas
+    ``_MEIPASS/ainslup_assistant/web/server.py`` mientras que los datas
     pueden haber quedado en ``_MEIPASS/web/static`` o en
-    ``_MEIPASS/xens_assistant/web/static`` según el spec usado.
+    ``_MEIPASS/ainslup_assistant/web/static`` según el spec usado.
     Se prueban todas antes de rendirse (sin static no hay UI).
     """
     candidates = [HERE / "static"]
@@ -39,7 +39,7 @@ def _static_dir() -> Path:
         if base:
             base = Path(base)
             candidates += [
-                base / "xens_assistant" / "web" / "static",
+                base / "ainslup_assistant" / "web" / "static",
                 base / "web" / "static",
             ]
     except Exception:
@@ -202,7 +202,7 @@ class WebServer:
                                         "type": "error",
                                         "requestId": request_id or None,
                                         "content": (
-                                            f"Alcanzaste el límite de Xens Credits de tu plan "
+                                            f"Alcanzaste el límite de Ainslup Credits de tu plan "
                                             f"({limit} al mes). Se renuevan el 1º de cada mes. "
                                             f"Mejora tu plan para obtener más."
                                         ),
@@ -221,7 +221,7 @@ class WebServer:
                                             "type": "error",
                                             "requestId": request_id or None,
                                             "content": (
-                                                f"Agotaste los Xens Credits beta de tu plan "
+                                                f"Agotaste los Ainslup Credits beta de tu plan "
                                                 f"({limit} al mes). Se renuevan el 1º de cada mes."
                                             ),
                                         })
@@ -430,7 +430,7 @@ class WebServer:
                 content_type="text/html"
             )
         return web.Response(
-            text="<h1>Xens Assistant</h1><p>Web UI not found.</p>",
+                text="<h1>Ainslup Assistant</h1><p>Web UI not found.</p>",
             content_type="text/html"
         )
 
@@ -444,6 +444,13 @@ class WebServer:
             tier = tier_config.effective_tier(account.get("tier") or "free")
             used, credit_limit = credits.get_usage(tier=tier, uid=uid)
             lic_state = lic.get_state()
+            try:
+                from ..core import paypal as paypal_mod
+                paypal_info = {"configured": paypal_mod.is_configured(),
+                               "plans": [p for p in ("lite", "pro", "premium")
+                                         if paypal_mod.is_plan_configured(p)]}
+            except Exception:
+                paypal_info = {"configured": False, "plans": []}
             return web.json_response({
                 "account": True,
                 "uid": uid,
@@ -458,6 +465,7 @@ class WebServer:
                 "beta": bool(beta),
                 "beta_plan": beta,
                 "beta_models": tier_config.aliases_for_tier("free") if beta else [],
+                "paypal": paypal_info,
                 "license": lic_state,
             })
         profile.load()
@@ -512,6 +520,74 @@ class WebServer:
             version = "0.0.0"
         return web.json_response({"version": version})
 
+    async def _handle_api_paypal_subscribe(self, request):
+        """Crea una suscripción PayPal para la cuenta logueada. -> {approve_url}."""
+        account = await firebase_auth.account_from_authorization(
+            request.headers.get("Authorization")
+        )
+        if not account:
+            return web.json_response({"error": "login required"}, status=401)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        plan = str(body.get("plan") or "").strip().lower()
+        try:
+            from ..core import paypal as paypal_mod
+        except Exception:
+            return web.json_response({"error": "paypal unavailable"}, status=500)
+        if plan not in paypal_mod.PLANS:
+            return web.json_response({"error": "unknown plan"}, status=400)
+        if not paypal_mod.is_plan_configured(plan):
+            return web.json_response({"error": "plan not configured"}, status=501)
+        sub = await paypal_mod.create_subscription(plan, uid=str(account.get("uid") or ""))
+        if not sub or not sub.get("approve_url"):
+            return web.json_response({"error": "paypal failed"}, status=502)
+        return web.json_response({"approve_url": sub["approve_url"],
+                                  "subscription_id": sub.get("subscription_id"),
+                                  "plan": plan})
+
+    def _paypal_page(self, title: str, text: str, ok: bool) -> web.Response:
+        color = "#3ddc84" if ok else "#e5484d"
+        return web.Response(
+            text=f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
+                 f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                 f"<title>{title} — AINSLUP</title>"
+                 f"<link rel='stylesheet' href='/site.css'></head><body>"
+                 f"<div class='auth-shell'><div class='auth-card'>"
+                 f"<div class='auth-brand'>AINSLUP</div>"
+                 f"<p class='auth-subtitle' style='color:{color}'>{title}</p>"
+                 f"<p class='modal-text'>{text}</p>"
+                 f"<a href='/index.html' class='btn btn-primary btn-block'>Volver al chat</a>"
+                 f"</div></div></body></html>",
+            content_type="text/html",
+        )
+
+    async def _handle_paypal_return(self, request):
+        sub_id = (request.query.get("subscription_id") or "").strip()
+        if not sub_id:
+            return self._paypal_page("Pago sin confirmar",
+                                     "PayPal no devolvió suscripción. Revisa tu plan en Configuración en unos minutos.",
+                                     False)
+        try:
+            from ..core import paypal as paypal_mod
+            sub = await paypal_mod.get_subscription(sub_id)
+        except Exception:
+            sub = None
+        if sub and sub.get("status") in ("ACTIVE", "APPROVAL_PENDING", "APPROVED"):
+            plan = (sub.get("plan") or "tu plan").upper()
+            return self._paypal_page("¡Plan activado!",
+                                     f"Tu suscripción {plan} está en proceso. El plan se refleja en tu cuenta en cuanto PayPal confirme (normalmente segundos).",
+                                     True)
+        return self._paypal_page("Pago sin confirmar",
+                                 "No pudimos verificar la suscripción todavía. Si el cobro aparece en PayPal, el plan se activará solo vía webhook.",
+                                 False)
+
+    async def _handle_paypal_cancel(self, request):
+        return self._paypal_page("Pago cancelado",
+                                 "No se realizó ningún cobro. Puedes intentarlo de nuevo cuando quieras.",
+                                 False)
+
     async def start(self):
         self._app = web.Application()
         self._app.router.add_get("/", self._handle_index)
@@ -521,6 +597,9 @@ class WebServer:
         self._app.router.add_get("/api/deps", self._handle_api_deps)
         self._app.router.add_post("/api/deps/install", self._handle_api_deps_install)
         self._app.router.add_get("/api/version", self._handle_api_version)
+        self._app.router.add_post("/api/paypal/subscribe", self._handle_api_paypal_subscribe)
+        self._app.router.add_get("/paypal/return", self._handle_paypal_return)
+        self._app.router.add_get("/paypal/cancel", self._handle_paypal_cancel)
         static_dir = _static_dir()
         if not static_dir.is_dir():
             logger.warning("Web static dir missing (%s); UI servida sin estáticos", static_dir)

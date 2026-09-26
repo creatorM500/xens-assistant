@@ -9,14 +9,14 @@ from typing import Optional
 
 logger = logging.getLogger("xens.tools.desktop_tray")
 
-_DATA_DIR = Path.home() / ".xens"
+_DATA_DIR = Path.home() / ".ainslup"
 _HUD_WINDOW = None
 _TRAY_ICON = None
 
 
 def _get_icon_path() -> str:
     base = Path(__file__).resolve().parent.parent / "assets"
-    for name in ["xens.ico", "xens.png", "icon.ico", "icon.png"]:
+    for name in ["ainslup.ico", "ainslup.png", "icon.ico", "icon.png"]:
         path = base / name
         if path.exists():
             return str(path)
@@ -55,8 +55,8 @@ def start_tray() -> str:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", on_quit),
         )
-        _TRAY_ICON = pystray.Icon("xens", image, "Xens Assistant", menu)
-        t = threading.Thread(target=_TRAY_ICON.run, daemon=True, name="xens-tray")
+        _TRAY_ICON = pystray.Icon("ainslup", image, "Ainslup Assistant", menu)
+        t = threading.Thread(target=_TRAY_ICON.run, daemon=True, name="ainslup-tray")
         t.start()
         return json.dumps({"success": True, "message": "System tray started"})
     except Exception as e:
@@ -90,12 +90,12 @@ def show_hud() -> str:
         def _run():
             global _HUD_WINDOW
             _HUD_WINDOW = webview.create_window(
-                "Xens", html=html, width=380, height=500,
+                "Ainslup", html=html, width=380, height=500,
                 frameless=True, transparent=True, always_on_top=True,
                 resizable=False, easy_drag=False,
             )
             webview.start(private_mode=True)
-        threading.Thread(target=_run, daemon=True, name="xens-hud").start()
+        threading.Thread(target=_run, daemon=True, name="ainslup-hud").start()
         return json.dumps({"success": True, "message": "HUD launched"})
     except Exception as e:
         return json.dumps({"error": f"Failed to show HUD: {e}", "success": False})
@@ -129,14 +129,17 @@ def set_autorun(enable: bool = True) -> str:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
         if enable:
             exe = sys.executable
-            winreg.SetValueEx(key, "XensPro", 0, winreg.REG_SZ, f'"{exe}" "-m" "xens_assistant"')
+            winreg.SetValueEx(key, "Ainslup", 0, winreg.REG_SZ, f'"{exe}" "-m" "ainslup_assistant"')
             winreg.CloseKey(key)
             return json.dumps({"success": True, "message": "Autorun enabled"})
         else:
             try:
-                winreg.DeleteValue(key, "XensPro")
+                winreg.DeleteValue(key, "Ainslup")
             except Exception:
-                pass
+                try:
+                    winreg.DeleteValue(key, "XensPro")  # legacy
+                except Exception:
+                    pass
             winreg.CloseKey(key)
             return json.dumps({"success": True, "message": "Autorun disabled"})
     except Exception as e:
@@ -160,11 +163,11 @@ body{font-family:-apple-system,sans-serif;background:rgba(10,10,20,0.75);color:#
 .card-value{font-size:14px;font-weight:500;margin-top:2px}
 .footer{font-size:10px;color:#444;text-align:center;margin-top:16px}
 </style></head><body>
-<div class="header"><div class="logo">X</div><div><div class="title">Xens</div><div class="subtitle" id="statusText">Running</div></div></div>
+<div class="header"><div class="logo">A</div><div><div class="title">Ainslup</div><div class="subtitle" id="statusText">Running</div></div></div>
 <div class="section"><div class="section-title">Now</div>
 <div class="card"><div class="card-label">Time</div><div class="card-value" id="clock">--:--</div></div>
 <div class="card"><div class="card-label">Active Window</div><div class="card-value" id="activeWindow">--</div></div></div>
-<div class="footer">Xens Pro</div>
+<div class="footer">Ainslup Pro</div>
 <script>
 function updateClock(){var n=new Date();document.getElementById('clock').textContent=n.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'})}
 updateClock();setInterval(updateClock,1000);

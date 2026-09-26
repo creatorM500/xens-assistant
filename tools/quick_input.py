@@ -36,7 +36,7 @@ def _show_notification(title: str, message: str):
 class QuickInputWindow:
     def __init__(self):
         self.window = tk.Tk()
-        self.window.title("Xens - Quick Input")
+        self.window.title("Ainslup - Quick Input")
         self.window.geometry("420x140")
         self.window.resizable(False, False)
         self._center()
@@ -83,7 +83,7 @@ class QuickInputWindow:
 
     def _on_response(self, response: str):
         self.window.destroy()
-        _show_notification("Xens", response[:256])
+        _show_notification("Ainslup", response[:256])
 
     def run(self):
         self.window.mainloop()

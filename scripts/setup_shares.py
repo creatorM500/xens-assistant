@@ -16,7 +16,7 @@ BUCKET = "xens-shares"
 
 
 def creds() -> dict:
-    data = json.loads((Path.home() / ".xens" / "supabase.json").read_text(encoding="utf-8"))
+    data = json.loads((Path.home() / ".ainslup" / "supabase.json").read_text(encoding="utf-8"))
     if not data.get("management_pat"):
         sys.exit("supabase.json needs management_pat")
     return data

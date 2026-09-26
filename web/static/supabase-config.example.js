@@ -6,7 +6,7 @@
    2. Copia Project URL y anon key en:
       Project Settings -> API -> Project URL / anon public key
    3. Renombra este archivo a supabase-config.js con tus datos.
-   4. En el motor agrega en ~/.xens/config.json o env:
+   4. En el motor agrega en ~/.ainslup/config.json o env:
         env SUPABASE_JWT_SECRET = <JWT Secret de Project Settings -> API>
       o config.json: { "supabase": { "jwt_secret": "..." } }
 

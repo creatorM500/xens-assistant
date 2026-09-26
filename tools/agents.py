@@ -25,7 +25,7 @@ MAX_CONCURRENT = {"free": 0, "pro": 2, "premium": 4}
 MAX_AGENT_STEPS = 6
 
 AGENT_SYSTEM = (
-    "Eres un sub-agente de Xens Assistant ejecutando una tarea asignada por "
+    "Eres un sub-agente de Ainslup Assistant ejecutando una tarea asignada por "
     "el orquestador. TAREA: {task}\n"
     "Usa las herramientas disponibles para completarla de la forma más "
     "eficiente posible. Cuando termines, responde SOLO con un resumen final "

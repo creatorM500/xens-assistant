@@ -2,13 +2,15 @@
 core/license.py — Serial-key licensing (offline, HMAC-signed).
 
 Key format (legible for humans):
-    XENS-<TIER>-<DAYS>-<HWID8>-<SIG12>[-<NAME>]
+    AINSLUP-<TIER>-<DAYS>-<HWID8>-<SIG12>[-<NAME>]
 Examples:
-    XENS-PRO-3650-3F9A2C1B-9c4b2f1e7766-MARIA
-    XENS-PREMIUM-0-00000000-8a3b1c0d5e6f   (lifetime, any machine -> binds on activation)
+    AINSLUP-PRO-3650-3F9A2C1B-9c4b2f1e7766-MARIA
+    AINSLUP-PREMIUM-0-00000000-8a3b1c0d5e6f   (lifetime, any machine -> binds on activation)
+
+Legacy XENS- keys are still accepted (same secret, prefix-aware verify).
 
 Security notes:
-    - Signature is HMAC-SHA256 over "XENS.TIER.DAYS.HWID" truncated to 48 bits.
+    - Signature is HMAC-SHA256 over "AINSLUP.TIER.DAYS.HWID" truncated to 48 bits.
       Enough to stop casual forgery for a controlled market; for high-stakes sales
       pair with an online validation endpoint (server returns signed confirmation).
     - HWID "00000000" = unbound: the first machine that activates binds the key.
@@ -36,14 +38,14 @@ _SECRET = (
     or _DEFAULT_SECRET
 )
 
-_STATE_PATH = Path.home() / ".xens" / "license.json"
+_STATE_PATH = Path.home() / ".ainslup" / "license.json"
 STATE_DIR = _STATE_PATH.parent
 
 TIERS = ("FREE", "LITE", "PRO", "PREMIUM")
 _TIER_TO_SYSTEM = {"FREE": "free", "LITE": "lite", "PRO": "pro", "PREMIUM": "premium"}
 UNBOUND_HWID = "00000000"
 
-# Default license server: the Xens Supabase Edge Function. Used as a fallback
+# Default license server: the Ainslup Supabase Edge Function. Used as a fallback
 # when no server is configured explicitly, so online activation works out of the
 # box. Override with env XENS_LICENSE_SERVER / XENS_SERVER_URL, config
 # "server": {"url": ...}, or the CLI command /server <url>.
@@ -64,7 +66,16 @@ def get_server_url() -> str:
 
 
 def get_server_url_with_default() -> str:
-    """Like get_server_url(), but falls back to the shipped default endpoint."""
+    """Like get_server_url(), but falls back to the shipped default endpoint.
+
+    Staging: AINSLUP_EDGE_URL (o AINSLUP_ENV=staging) apunta al proyecto
+    de staging sin tocar código.
+    """
+    env = (os.environ.get("AINSLUP_EDGE_URL") or "").strip()
+    if env:
+        return env.rstrip("/")
+    if (os.environ.get("AINSLUP_ENV") or "").strip().lower() == "staging":
+        return "https://mwqkfeyttegxhfvcsjcm.supabase.co/functions/v1/license"
     return get_server_url() or DEFAULT_SERVER_URL
 
 
@@ -86,12 +97,17 @@ def get_hwid() -> str:
     return fp[:8]
 
 
+SERIAL_PREFIX = "AINSLUP"
+SERIAL_PREFIXES = ("AINSLUP", "XENS")  # XENS- legacy aceptado
+
+
 def parse_serial(raw: str) -> dict:
     """Validate a serial and return its payload. Never raises for bad input."""
     try:
         parts = raw.strip().upper().split("-")
-        if len(parts) < 5 or parts[0] != "XENS":
-            return {"valid": False, "error": "Must start with XENS-... (looks like: XENS-PRO-3650-<hwid>-<code>)"}
+        if len(parts) < 5 or parts[0] not in SERIAL_PREFIXES:
+            return {"valid": False, "error": f"Must start with {SERIAL_PREFIX}-... (looks like: {SERIAL_PREFIX}-PRO-3650-<hwid>-<code>)"}
+        prefix = parts[0]
         tier, days_s, hwid, sig = parts[1], parts[2], parts[3], parts[4]
         name = "-".join(parts[5:]) if len(parts) > 5 else ""
         if tier not in TIERS:
@@ -102,7 +118,7 @@ def parse_serial(raw: str) -> dict:
             return {"valid": False, "error": "HWID must be 8 hex chars (00000000 = works on any machine)."}
         if len(sig) != 12 or not all(c in "0123456789abcdefABCDEF" for c in sig):
             return {"valid": False, "error": "Signature must be 12 hex chars."}
-        payload = f"XENS.{tier}.{days_s}.{hwid}"
+        payload = f"{prefix}.{tier}.{days_s}.{hwid}"
         expected = _sign(payload)
         if not hmac.compare_digest(expected, sig.lower()):
             return {"valid": False, "error": "Invalid signature — key was not issued by us (or secret mismatch)."}
@@ -128,9 +144,9 @@ def issue_serial(tier="PRO", days=365, hwid="00000000", name="") -> str:
     hwid = (hwid or UNBOUND_HWID).upper()
     if len(hwid) != 8:
         raise ValueError("hwid must be 8 hex chars or '00000000'")
-    payload = f"XENS.{tier}.{days}.{hwid}"
+    payload = f"{SERIAL_PREFIX}.{tier}.{days}.{hwid}"
     sig = _sign(payload)
-    key = f"XENS-{tier}-{days}-{hwid}-{sig}"
+    key = f"{SERIAL_PREFIX}-{tier}-{days}-{hwid}-{sig}"
     if name:
         safe = "".join(c for c in name.upper() if c.isalnum() or c == " ").replace(" ", "_")
         if safe:

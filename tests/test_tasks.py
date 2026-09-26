@@ -10,10 +10,10 @@ import traceback
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")))
 
-from xens_assistant.core.tasks import task_manager
-from xens_assistant.core.llm import charge_ctx, session_ctx
-import xens_assistant.tools.tasks as tt
-from xens_assistant.core import llm as core_llm
+from ainslup_assistant.core.tasks import task_manager
+from ainslup_assistant.core.llm import charge_ctx, session_ctx
+import ainslup_assistant.tools.tasks as tt
+from ainslup_assistant.core import llm as core_llm
 
 RESULTS = []
 

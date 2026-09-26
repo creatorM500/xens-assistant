@@ -22,7 +22,7 @@ nunca ve las API keys de IA: solo recibe un token y el servidor llama al modelo.
 ## Deploy
 
 ```bash
-# desde C:\xens assistant\xens_assistant
+# desde C:\xens assistant\ainslup_assistant
 
 # 1. secrets (pedirlos en el panel o via CLI)
 supabase secrets set XENS_TOKEN_SECRET=<random-largo> \

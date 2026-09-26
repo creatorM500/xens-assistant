@@ -7,10 +7,10 @@ from .tier_config import tier_config
 
 logger = logging.getLogger("xens.credits")
 
-CREDITS_DIR = Path.home() / ".xens"
+CREDITS_DIR = Path.home() / ".ainslup"
 CREDITS_FILE = CREDITS_DIR / "credits.json"
 
-# Multiplicador de costo por modelo: 1 Xens Credit = 1k tokens base-equivalentes
+# Multiplicador de costo por modelo: 1 Ainslup Credit = 1k tokens base-equivalentes
 # del modelo más económico (deepseek-chat 1.2x base). La fórmula:
 #   credits = (prompt_tokens + 3.5 * completion_tokens) / 1000 * multiplier
 # Output pesa 3.5x input en precio real.

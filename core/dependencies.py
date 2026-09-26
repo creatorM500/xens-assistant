@@ -1,6 +1,6 @@
 """core/dependencies.py — Detección, consentimiento e instalación de dependencias.
 
-Xens necesita algunos componentes externos para funciones avanzadas:
+Ainslup necesita algunos componentes externos para funciones avanzadas:
   - FFmpeg (binario portable, ~110 MB) → edición de video/audio.
   - yt-dlp (pip) → descargas de video de YouTube y otras plataformas.
   - Paquetes core (pip) → aiohttp, httpx, comtypes (motor).
@@ -13,7 +13,7 @@ Flujo:
      si falta y el usuario dio consentimiento, se instala sola;
      si no, lanza un error claro apuntando a Configuración.
 
-El estado vive en ~/.xens/config.json → "deps": {"approved": bool,
+El estado vive en ~/.ainslup/config.json → "deps": {"approved": bool,
 "installed": [ids]}.
 """
 import json
@@ -30,7 +30,7 @@ from ..tools.registry import ToolError
 
 logger = logging.getLogger("xens.deps")
 
-BIN_DIR = Path.home() / ".xens" / "bin"
+BIN_DIR = Path.home() / ".ainslup" / "bin"
 _REQUIREMENTS = Path(__file__).resolve().parent.parent / "requirements-core.txt"
 
 _CORE_MODULES = ("aiohttp", "httpx", "comtypes")

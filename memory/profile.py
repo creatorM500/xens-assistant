@@ -3,7 +3,7 @@ from pathlib import Path
 
 logger = logging.getLogger("xens.memory")
 
-PROFILE_DIR = Path.home() / ".xens"
+PROFILE_DIR = Path.home() / ".ainslup"
 PROFILE_FILE = PROFILE_DIR / "profile.json"
 _SAVE_DEBOUNCE = 3.0
 
@@ -35,8 +35,8 @@ class UserProfile:
         self._file = PROFILE_FILE
 
     def _profile_file(self, uid):
-        # Perfil aislado por cuenta (SaaS): ~/.xens/profile-{uid}.json.
-        # Sin uid (modo local): ~/.xens/profile.json como siempre.
+        # Perfil aislado por cuenta (SaaS): ~/.ainslup/profile-{uid}.json.
+        # Sin uid (modo local): ~/.ainslup/profile.json como siempre.
         if uid:
             return PROFILE_DIR / f"profile-{uid}.json"
         return PROFILE_FILE

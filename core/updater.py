@@ -22,7 +22,7 @@ def _read_version() -> str:
             base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
             path = base / "version.txt"
             if not path.exists():
-                path = base / "xens_assistant" / "version.txt"
+                path = base / "ainslup_assistant" / "version.txt"
         if path.exists():
             return path.read_text(encoding="utf-8").strip()
     except Exception:
@@ -160,7 +160,7 @@ async def auto_update_zip() -> str:
 
 # ── EXE update (beta): descarga + swap al reiniciar ────────────────────
 # El feed version.json puede traer:
-#   {"version": "...", "exe": {"version": "...", "file": "Xens-beta.exe", "sha256": "..."}}
+#   {"version": "...", "exe": {"version": "...", "file": "Ainslup-beta.exe", "sha256": "..."}}
 # Windows no deja sobrescribir un exe en ejecución: se descarga como
 # <exe>.new.exe y un .bat lo intercambia al salir (patrón clásico).
 
@@ -244,6 +244,17 @@ async def download_exe_update(url_path: str = "", sha256: str = "") -> dict:
         return {"ok": False, "error": f"Download failed: {e}"}
 
 
+def swap_bat_text(exe: Path, staged: Path) -> str:
+    """Texto del .bat que intercambia el exe al salir (puro, testeable)."""
+    return (
+        "@echo off\r\n"
+        "timeout /t 2 /nobreak >nul\r\n"
+        f'move /Y "{staged}" "{exe}" >nul\r\n'
+        f'start "" "{exe}" --app\r\n'
+        'del "%~f0"\r\n'
+    )
+
+
 def stage_exe_swap_and_exit() -> str:
     """Crea el .bat que intercambia el exe al salir y termina el proceso.
 
@@ -260,14 +271,7 @@ def stage_exe_swap_and_exit() -> str:
     if not staged.exists():
         return "no staged update"
     bat = exe.parent / "_update_swap.bat"
-    bat.write_text(
-        "@echo off\r\n"
-        "timeout /t 2 /nobreak >nul\r\n"
-        f'move /Y "{staged}" "{exe}" >nul\r\n'
-        f'start "" "{exe}" --app\r\n'
-        'del "%~f0"\r\n',
-        encoding="utf-8",
-    )
+    bat.write_text(swap_bat_text(exe, staged), encoding="utf-8")
     try:
         subprocess.Popen(["cmd", "/c", str(bat)], cwd=str(exe.parent),
                          creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))

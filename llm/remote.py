@@ -1,5 +1,5 @@
 """
-llm/remote.py — RemoteProvider: pipe Xens LLM calls through your OWN backend.
+llm/remote.py — RemoteProvider: pipe Ainslup LLM calls through your OWN backend.
 
 Codex-style protection: the Mistral/OpenAI key lives server-side, never in the
 client. The client sends the message history + tool schemas; the backend calls

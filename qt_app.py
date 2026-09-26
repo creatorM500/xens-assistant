@@ -33,7 +33,7 @@ class MainWindow(QMainWindow):
         global _main_window
         _main_window = self
 
-        self.setWindowTitle("Xens")
+        self.setWindowTitle("Ainslup")
         self.setMinimumSize(600, 500)
         self.resize(900, 700)
         self.setStyleSheet(f"QMainWindow, QWidget {{ background: {BG}; color: {TEXT}; }}")
@@ -55,7 +55,7 @@ class MainWindow(QMainWindow):
         bl = QHBoxLayout(bar)
         bl.setContentsMargins(16, 0, 16, 0)
 
-        title = QLabel("Xens")
+        title = QLabel("Ainslup")
         title.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {TEXT}; background: transparent;")
         bl.addWidget(title)
 
@@ -121,7 +121,7 @@ class MainWindow(QMainWindow):
         irl.setSpacing(6)
 
         self._input = QTextEdit()
-        self._input.setPlaceholderText("Message Xens...")
+        self._input.setPlaceholderText("Message Ainslup...")
         self._input.setFixedHeight(40)
         self._input.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._input.setStyleSheet(f"""
@@ -152,7 +152,7 @@ class MainWindow(QMainWindow):
         icol.addWidget(input_row)
 
         # Bottom text
-        note = QLabel("Xens may produce inaccurate information.")
+        note = QLabel("Ainslup may produce inaccurate information.")
         note.setStyleSheet(f"color: {DIM}; font-size: 10px; background: transparent;")
         note.setAlignment(Qt.AlignCenter)
         note.setFixedHeight(20)
@@ -284,12 +284,12 @@ def run_qt_app():
 
     import ctypes
     try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("xens.assistant.v6")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ainslup.assistant.v1")
     except:
         pass
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Xens")
+    app.setApplicationName("Ainslup")
 
     font = QFont("Segoe UI", 10)
     font.setStyleStrategy(QFont.PreferAntialias)

@@ -5,10 +5,11 @@ from urllib.parse import urlparse
 import httpx
 
 from ..core.utils import get_http_client
+from .registry import register
 
 logger = logging.getLogger("xens.tools.web")
 
-_CACHE_DIR = Path.home() / ".xens" / "cache" / "web"
+_CACHE_DIR = Path.home() / ".ainslup" / "cache" / "web"
 _CACHE_DIR.mkdir(parents=True, exist_ok=True)
 _CACHE_TTL = 3600
 _MAX_CACHE_SIZE = 50
@@ -65,6 +66,7 @@ def _strip_html(html):
     text = re.sub(r'&#(\d+);', lambda m: chr(int(m.group(1))), text)
     return text.strip()[:8000]
 
+@register(name="web_search", description="Search the web (DuckDuckGo, no key needed). Returns titles, URLs and snippets.", parameters={"type": "object", "properties": {"query": {"type": "string"}, "num_results": {"type": "integer"}}, "required": ["query"]}, tier="free")
 async def web_search(query: str, num_results: int = 5) -> str:
     if not query or not query.strip():
         return json.dumps({"error": "Search query is required", "success": False})
@@ -78,13 +80,22 @@ async def web_search(query: str, num_results: int = 5) -> str:
 
     results = []
 
-    # Primary: DuckDuckGo Lite API
+    # Primary: DuckDuckGo HTML (sin captcha para bots la mayoría de veces)
     try:
-        ddg_results = await _search_ddg(query, num_results)
-        if ddg_results:
-            results = ddg_results
+        html_results = await _search_ddg_html(query, num_results)
+        if html_results:
+            results = html_results
     except Exception as e:
-        logger.warning(f"DDG search failed: {e}")
+        logger.warning(f"DDG html search failed: {e}")
+
+    # Secondary: DuckDuckGo Lite API
+    if not results:
+        try:
+            ddg_results = await _search_ddg(query, num_results)
+            if ddg_results:
+                results = ddg_results
+        except Exception as e:
+            logger.warning(f"DDG search failed: {e}")
 
     # Fallback: scraping
     if not results:
@@ -102,6 +113,45 @@ async def web_search(query: str, num_results: int = 5) -> str:
     resp = {"success": True, "query": query, "results": results, "count": len(results)}
     _cache_set(cache_key, resp)
     return json.dumps(resp)
+
+async def _search_ddg_html(query, num_results):
+    """DDG html endpoint: devuelve resultados reales sin captcha (con UA de navegador)."""
+    from urllib.parse import parse_qs, unquote
+    url = f"https://html.duckduckgo.com/html/?q={query.replace(' ', '+')}"
+    try:
+        r = await get_http_client().get(url, timeout=15,
+            headers={"User-Agent": _USER_AGENT})
+        r.raise_for_status()
+        html = r.text
+    except Exception:
+        return []
+    if "anomaly-modal" in html:
+        return []
+    results = []
+    for m in re.finditer(r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html, re.DOTALL):
+        href, title = m.group(1), _strip_html(m.group(2))
+        url = href
+        if "uddg=" in href:
+            try:
+                q = parse_qs(urlparse("https:" + href if href.startswith("//") else href).query)
+                if q.get("uddg"):
+                    url = unquote(q["uddg"][0])
+            except Exception:
+                pass
+        elif href.startswith("//"):
+            url = "https:" + href
+        if not url.startswith("http"):
+            continue
+        results.append({"title": title or url, "url": url, "snippet": ""})
+        if len(results) >= num_results * 2:
+            break
+    # snippets en bloques result__snippet (mismo orden)
+    snips = re.findall(r'class="result__snippet"[^>]*>(.*?)</a>', html, re.DOTALL)
+    for i, s in enumerate(snips[:len(results)]):
+        if not results[i]["snippet"]:
+            results[i]["snippet"] = _strip_html(s)
+    return results
+
 
 async def _search_ddg(query, num_results):
     url = "https://lite.duckduckgo.com/lite/"
@@ -141,6 +191,7 @@ async def _search_scrape(query, num_results):
             results.append({"title": text, "url": url, "snippet": ""})
     return results
 
+@register(name="web_fetch", description="Fetch a web page (http/https) and return its text content.", parameters={"type": "object", "properties": {"url": {"type": "string"}, "max_chars": {"type": "integer"}, "format": {"type": "string"}}, "required": ["url"]}, tier="free")
 async def web_fetch(url: str, max_chars: int = 8000, format: str = "markdown") -> str:
     if not url:
         return json.dumps({"error": "URL is required", "success": False})

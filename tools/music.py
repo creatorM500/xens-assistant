@@ -1,7 +1,7 @@
 from .registry import register
 """
 music.py — Spotify playback control.
-OAuth via localhost HTTP server. Tokens stored in ~/.xens/spotify_token.json.
+OAuth via localhost HTTP server. Tokens stored in ~/.ainslup/spotify_token.json.
 Ported from Xens Omni spotify_control.py with path cleanup and JSON returns.
 """
 import asyncio, json, logging, os, threading, time, webbrowser
@@ -17,7 +17,7 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
-_DATA_DIR = Path.home() / ".xens"
+_DATA_DIR = Path.home() / ".ainslup"
 _TOKEN_PATH = _DATA_DIR / "spotify_token.json"
 _CONFIG_PATH = _DATA_DIR / "spotify_config.json"
 _CLIENT_ID = "5f0c7c1b2c7a4b9e8b3c1d2e3f4a5b6c"

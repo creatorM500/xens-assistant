@@ -7,7 +7,7 @@ SAMPLE_RATE = 16000
 ENERGY_THRESHOLD = 0.008
 SILENCE_TIMEOUT = 1.5
 MAX_RECORD_SECONDS = 15
-WAKE_WORDS = ["xens", "hey xens", "ey xens"]
+WAKE_WORDS = ["ainslup", "hey ainslup", "ey ainslup", "xens", "hey xens"]
 CONVERSATION_TIMEOUT = 60
 
 class VoiceActivator:

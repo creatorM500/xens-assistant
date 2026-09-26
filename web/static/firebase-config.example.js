@@ -7,7 +7,7 @@
    3. Activa Authentication -> Sign-in method: Email/Password,
       Google y GitHub.
    4. Renombra este archivo a  firebase-config.js  con tus datos.
-   5. En el motor (core/config.py o ~/.xens/config.json) agrega:
+   5. En el motor (core/config.py o ~/.ainslup/config.json) agrega:
          "firebase": { "project_id": "TU-PROJECT-ID" }
       para que el motor valide los tokens (mismo project id que
       el campo projectId de abajo).

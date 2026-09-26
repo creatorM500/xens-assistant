@@ -6,7 +6,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 from .registry import register
 
-DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), ".xens", "downloads")
+DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), ".ainslup", "downloads")
 HISTORY_FILE = os.path.join(DOWNLOAD_DIR, "_history.json")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 

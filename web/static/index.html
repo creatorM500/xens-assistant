@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XENS</title>
+<title>AINSLUP</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
     <!-- SIDEBAR -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-top">
-        <a href="landing.html" class="brand">XENS</a>
+        <a href="landing.html" class="brand">AINSLUP</a>
         <button class="icon-btn sidebar-toggle" id="sidebarToggle" aria-label="Colapsar panel" title="Colapsar panel">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
@@ -108,7 +108,7 @@
         <div class="topbar-left">
           <span class="topbar-title" id="topbarTitle">Conversación nueva</span>
           <div class="model-selector">
-            <select id="modelSelector" class="model-select" title="Modelo XENS">
+            <select id="modelSelector" class="model-select" title="Modelo AINSLUP">
               <option value="auto">Auto</option>
               <option value="Flash">Flash</option>
               <option value="Core">Core</option>
@@ -120,7 +120,7 @@
           </div>
         </div>
         <span class="status" id="connStatus">
-          <span class="status-dot" id="statusDot"></span> <span id="statusText">XENS — activo</span>
+          <span class="status-dot" id="statusDot"></span> <span id="statusText">AINSLUP — activo</span>
         </span>
       </header>
 
@@ -207,7 +207,7 @@
           <span class="plan-badge" id="settingsPlanBadge">FREE</span>
         </div>
         <div class="modal-row">
-          <span id="settingsUsageLabel">Xens Credits (mensual)</span>
+          <span id="settingsUsageLabel">Ainslup Credits (mensual)</span>
           <span id="settingsUsageCount">— / —</span>
         </div>
         <div class="modal-row">
@@ -224,6 +224,11 @@
         <div class="usage-bar">
           <div class="usage-fill" id="settingsUsageFill" style="width: 0%;"></div>
         </div>
+        <div id="subscribeRow" style="display:none;margin-top:10px;">
+          <span class="modal-label">Suscribirse (PayPal)</span>
+          <div class="license-row" id="subscribeBtns" style="flex-wrap:wrap;"></div>
+          <span class="license-msg" id="subscribeMsg"></span>
+        </div>
         <a href="pricing.html" class="btn-link">Ver planes y precios →</a>
       </div>
 
@@ -233,9 +238,9 @@
           <span>Estado</span>
           <span id="licenseStatusText">—</span>
         </div>
-        <p class="modal-text" style="font-size:12px;color:var(--text-secondary);margin:6px 0 8px;">Pega aquí el serial que te pasaron (ej. <code>XENS-PRO-…</code>) y pulsa <b>Activar</b>. Sin serial, XENS funciona con el plan Free automático.</p>
+        <p class="modal-text" style="font-size:12px;color:var(--text-secondary);margin:6px 0 8px;">Pega aquí el serial que te pasaron (ej. <code>AINSLUP-PRO-…</code>) y pulsa <b>Activar</b>. Sin serial, AINSLUP funciona con el plan Free automático.</p>
         <div class="license-row">
-          <input type="text" class="license-input" id="licenseKey" placeholder="XENS-XXXX-...">
+          <input type="text" class="license-input" id="licenseKey" placeholder="AINSLUP-XXXX-...">
           <button type="button" class="license-btn" id="activateLicenseBtn">Activar</button>
         </div>
         <span class="license-msg" id="licenseMsg"></span>
@@ -282,10 +287,10 @@
         </button>
       </div>
 
-      <p class="modal-text" id="lockText">Tu prueba gratuita terminó. Activa un serial para seguir usando XENS.</p>
+      <p class="modal-text" id="lockText">Tu prueba gratuita terminó. Activa un serial para seguir usando AINSLUP.</p>
 
       <div class="license-row">
-        <input type="text" class="license-input" id="lockLicenseKey" placeholder="XENS-XXXX-...">
+        <input type="text" class="license-input" id="lockLicenseKey" placeholder="AINSLUP-XXXX-...">
         <button type="button" class="license-btn" id="lockActivateBtn">Activar</button>
       </div>
       <span class="license-msg" id="lockMsg"></span>
@@ -304,8 +309,8 @@
 
       <!-- Paso 1: Bienvenida -->
       <div class="wizard-step" data-step="1">
-        <div class="wizard-brand">XENS</div>
-        <h2 class="wizard-title" id="wizardTitle">¡Bienvenido a Xens!</h2>
+        <div class="wizard-brand">AINSLUP</div>
+        <h2 class="wizard-title" id="wizardTitle">¡Bienvenido a Ainslup!</h2>
         <p class="wizard-text">Tu asistente que vive en tu PC: conversa, ejecuta tareas
           en tus archivos, busca en internet, usa tu micrófono y edita tus videos.
           Tus archivos y conversaciones quedan guardados en tu equipo.</p>
@@ -318,9 +323,9 @@
         </div>
       </div>
 
-      <!-- Paso 2: Qué hace Xens -->
+      <!-- Paso 2: Qué hace Ainslup -->
       <div class="wizard-step" data-step="2" style="display:none;">
-        <h2 class="wizard-title">¿Qué puede hacer Xens?</h2>
+        <h2 class="wizard-title">¿Qué puede hacer Ainslup?</h2>
         <div class="wizard-cards">
           <div class="wizard-card-item"><span class="wizard-card-icon">💬</span><div><b>Conversar</b><span>Respuestas con markdown, tablas y código. Sugerencias de inicio.</span></div></div>
           <div class="wizard-card-item"><span class="wizard-card-icon">📁</span><div><b>Archivos y PC</b><span>Lee, escribe, busca y ejecuta comandos en tu propio sistema.</span></div></div>
@@ -341,7 +346,7 @@
       <!-- Paso 4: Dependencias -->
       <div class="wizard-step" data-step="4" style="display:none;">
         <h2 class="wizard-title">Dependencias</h2>
-        <p class="wizard-text">Para funciones avanzadas, Xens descarga componentes
+        <p class="wizard-text">Para funciones avanzadas, Ainslup descarga componentes
           (a tu carpeta personal, sin permisos de administrador). Elegí qué instalar:</p>
         <div class="wizard-deps" id="wizardDeps"></div>
         <div class="wizard-deps-actions">
@@ -362,6 +367,16 @@
   <!-- Auth: local por defecto, Supabase si supabase-config.js existe -->
   <script src="local-auth.js"></script>
   <script src="supabase-config.js" onerror="window.__NO_SUPABASE__=true"></script>
+  <script src="supabase-config.staging.js" onerror="window.__NO_STAGING__=true"></script>
+  <script>
+    try {
+      if (new URLSearchParams(window.location.search).has("staging") || localStorage.getItem("ainslup.env") === "staging") {
+        if (window.SUPABASE_CONFIG_STAGING && window.SUPABASE_CONFIG_STAGING.url) {
+          window.SUPABASE_CONFIG = window.SUPABASE_CONFIG_STAGING;
+        }
+      }
+    } catch (err) {}
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" onerror="window.__NO_SUPABASE__=true"></script>
   <script src="supabase-auth.js" onerror="console.warn('supabase-auth no cargado')"></script>
   <script src="session.js"></script>

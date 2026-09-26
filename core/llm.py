@@ -1,4 +1,4 @@
-import copy, json, logging
+import copy, json, logging, re
 from contextvars import ContextVar
 
 from ..core.config import API_KEY, MODEL, MAX_CONTEXT_TOKENS
@@ -29,6 +29,67 @@ CORE_TOOLS = {
 # Los resultados de tools entran al contexto de la siguiente llamada LLM:
 # truncarlos evita que outputs enormes dominen el prompt (y el costo).
 _TOOL_RESULT_CAP = 4000
+
+_TEXT_TC_HEAD = re.compile(r"#{3,}\s*function\s*call\s*#{3,}", re.IGNORECASE)
+
+
+def _extract_text_tool_calls(content: str) -> tuple[list, str]:
+    """Respaldo para modelos que emiten tool-calls como texto
+    (``##### Function Call ##### / name: X / arguments: {...}``) en vez de
+    usar el API estructurado. Devuelve (tool_calls, contenido_limpio).
+
+    Sin esto, el bloque crudo se mostraba en el chat y la tool no corría.
+    """
+    if not content or not _TEXT_TC_HEAD.search(content):
+        return [], content
+    calls: list = []
+    spans: list = []
+    for m in _TEXT_TC_HEAD.finditer(content):
+        start = m.start()
+        tail = content[m.end():]
+        name_m = re.search(r"name:\s*([A-Za-z0-9_\-]+)", tail)
+        if not name_m:
+            continue
+        name = name_m.group(1)
+        args_m = re.search(r"arguments:\s*(\{.*\})", tail[name_m.end():], re.DOTALL)
+        if not args_m:
+            continue
+        # Tomar el JSON balanceado desde el primer '{'.
+        depth, end = 0, -1
+        for i, ch in enumerate(args_m.group(1)):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        if end < 0:
+            continue
+        try:
+            args = json.loads(args_m.group(1)[:end])
+        except Exception:
+            continue
+        if not isinstance(args, dict):
+            continue
+        if name not in registry.tool_names:
+            continue
+        block_end = m.end() + name_m.end() + args_m.start(1) + end
+        spans.append((start, block_end))
+        calls.append({
+            "id": f"text_tc_{len(calls)}",
+            "type": "function",
+            "function": {"name": name, "arguments": json.dumps(args, ensure_ascii=False)},
+        })
+    if not calls:
+        return [], content
+    cleaned = content
+    for s, e in sorted(spans, reverse=True):
+        cleaned = cleaned[:s] + cleaned[e:]
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    if calls:
+        logger.info("Parsed %d text tool-call(s): %s", len(calls), [c["function"]["name"] for c in calls])
+    return calls, cleaned
 
 _provider = None
 
@@ -146,12 +207,53 @@ def _last_user_text(messages) -> str:
             return m["content"]
     return ""
 
+
+_CONTRADICT_RE = re.compile(
+    r"(s[ií]\s+(tienes|hay|existe)|busca\s+estas?\s+tools?|usa\s+\w*web_search|"
+    r"tienes\s+acceso|claro\s+que\s+(tienes|puedes)|s[ií]\s+puedes)",
+    re.IGNORECASE,
+)
+
+
+def _nudge_capabilities(messages) -> None:
+    """Anti-contaminación: si el usuario contradice una negativa previa
+    ("sí tienes acceso", "busca estas tools"...), se inyecta un recordatorio
+    system con las herramientas REALES de este turno. Sin esto, el modelo
+    repite la negativa del historial aunque la tool exista.
+    """
+    try:
+        last = _last_user_text(messages)
+        if not last or not _CONTRADICT_RE.search(last):
+            return
+        names = sorted(set(registry.tool_names))
+        if not names:
+            return
+        # Primero las que el usuario nombra (ej. "web_search"), que si no
+        # quedarían cortadas al final de la lista.
+        mentioned = [n for n in names if n.lower() in last.lower()]
+        rest = [n for n in names if n not in mentioned]
+        ordered = mentioned + rest
+        show = ", ".join(ordered[:60])
+        if len(ordered) > 60:
+            show += f" (+{len(ordered) - 60} más)"
+        messages.append({
+            "role": "system",
+            "content": (
+                "[CAPACIDADES] El usuario indica que SÍ dispones de herramientas. "
+                f"Tus herramientas reales en este turno son: {show}. "
+                "Si la tarea las requiere, ÚSALAS ahora sin discutir el historial."
+            ),
+        })
+        logger.info("Capability nudge injected (%d tools)", len(names))
+    except Exception as e:
+        logger.debug(f"Capability nudge failed: {e}")
+
 async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
                         charge=True, tool_names=None, agent_name=None, xens_model=None,
                         provider=None, account_token=""):
     """Bucle principal orquestador->modelo->tools.
 
-    - uid + charge: descuenta Xens Credits con los tokens reales de cada
+    - uid + charge: descuenta Ainslup Credits con los tokens reales de cada
       llamada LLM (modelo elegido por core.model_router según la tarea).
     - tool_names: restringe el conjunto de tools (sub-agentes).
     - account_token: JWT Supabase del usuario; si viene, el LLM va por el
@@ -181,7 +283,7 @@ async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
         allowed, remaining, limit, reset_sec = credits.check(tier, uid=uid)
         if not allowed:
             msg = (
-                f"Alcanzaste el límite de Xens Credits de tu plan "
+                f"Alcanzaste el límite de Ainslup Credits de tu plan "
                 f"({limit} al mes). Se renuevan el 1º de cada mes. "
                 f"Mejora tu plan para obtener más."
             )
@@ -193,6 +295,7 @@ async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
 
     prefix = f"[{agent_name}] " if agent_name else ""
     _refresh_working_memory(messages)
+    _nudge_capabilities(messages)
     await _trim_context(messages, provider)
 
     consecutive_errors = 0
@@ -219,6 +322,14 @@ async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
             continue
         else:
             consecutive_errors = 0
+
+        # Respaldo: el modelo pudo emitir el tool-call como texto.
+        if not result.tool_calls and result.content:
+            text_calls, cleaned = _extract_text_tool_calls(result.content)
+            if text_calls:
+                from ..llm.base import LLMResult
+                result = LLMResult(content=cleaned, tool_calls=text_calls,
+                                   usage=result.usage, model=result.model)
 
         if charge and (uid or tier_config.is_beta()):
             model_used = result.model or (candidates[0].get("model", "") if candidates else "")

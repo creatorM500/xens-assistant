@@ -7,13 +7,13 @@ from datetime import datetime
 from .registry import register
 from ..core.llm import charge_ctx
 
-STORAGE_DIR = os.path.join(os.path.expanduser("~"), ".xens")
+STORAGE_DIR = os.path.join(os.path.expanduser("~"), ".ainslup")
 STORAGE_PATH = os.path.join(STORAGE_DIR, "user_profile.json")
 _file_lock = threading.Lock()
 
 
 def _storage_path() -> str:
-    # Perfil aislado por cuenta (SaaS): ~/.xens/user_profile-{uid}.json.
+    # Perfil aislado por cuenta (SaaS): ~/.ainslup/user_profile-{uid}.json.
     ctx = charge_ctx.get()
     uid = (ctx or {}).get("uid") if isinstance(ctx, dict) else None
     if uid:

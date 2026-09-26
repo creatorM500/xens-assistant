@@ -15,7 +15,7 @@ from PySide6.QtGui import (
 
 logger = __import__("logging").getLogger("xens.ui.panels")
 
-MEMORY_DIR = Path.home() / ".xens"
+MEMORY_DIR = Path.home() / ".ainslup"
 LAYOUT_FILE = MEMORY_DIR / "layout.json"
 EVENTS_FILE = MEMORY_DIR / "events.json"
 PLACES_FILE = MEMORY_DIR / "places.json"
@@ -436,7 +436,7 @@ class MusicPanel(FloatingPanel):
             self._now_playing.setText(f"▶ {Path(path).stem}")
 
     def play(self, query: str):
-        """Called by Xens tool — search and play a track"""
+        """Called by Ainslup tool — search and play a track"""
         if self._spotify_available:
             self._spotify_search.setPlainText(query)
             self._search_spotify()

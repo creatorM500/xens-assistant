@@ -14,7 +14,7 @@ logger = logging.getLogger("xens.tools.email")
 
 CRED_TYPE_GENERIC = 1
 CRED_PERSIST_LOCAL_MACHINE = 2
-CRED_TARGET = "XensEmail"
+CRED_TARGET = "AinslupEmail"
 
 class _CREDENTIAL(ctypes.Structure):
     _fields_ = [
@@ -78,7 +78,7 @@ def _cred_delete(target: str) -> bool:
     except Exception:
         return False
 
-_CFG_PATH = Path.home() / ".xens" / "email_config.json"
+_CFG_PATH = Path.home() / ".ainslup" / "email_config.json"
 
 def _load_config() -> dict:
     try:

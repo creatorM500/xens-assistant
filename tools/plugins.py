@@ -7,7 +7,7 @@ from typing import Callable, Optional
 from .registry import register
 
 _PLUGIN_DIR = os.path.join(os.path.dirname(__file__), "..", "plugins")
-_USER_PLUGIN_DIR = os.path.join(os.path.expanduser("~"), ".xens", "plugins")
+_USER_PLUGIN_DIR = os.path.join(os.path.expanduser("~"), ".ainslup", "plugins")
 _plugin_cache = []
 
 
@@ -90,7 +90,7 @@ def _register_plugin_tools():
 
 @register(
     name="plugins_discover",
-    description="Descubrir y cargar plugins desde plugins/ y ~/.xens/plugins/",
+    description="Descubrir y cargar plugins desde plugins/ y ~/.ainslup/plugins/",
     parameters={"type": "object", "properties": {}, "required": []},
     tier="free",
 )
