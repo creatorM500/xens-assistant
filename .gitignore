@@ -27,7 +27,7 @@ _update_build/
 # Tauri / Node
 node_modules/
 src-tauri/target/
-src-tauri/binaries/Xens*
+src-tauri/binaries/*
 src-tauri/gen/
 # Supabase CLI estado local (no es código)
 supabase/.temp/

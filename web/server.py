@@ -23,6 +23,7 @@ logger = logging.getLogger("xens.web")
 HERE = Path(__file__).parent
 
 
+
 def _static_dir() -> Path:
     """Carpeta web/static en fuente y en exe congelado.
 

@@ -11,12 +11,15 @@ logger = logging.getLogger("xens.llm.openai")
 
 
 class OpenAIProvider(BaseLLM):
-    def __init__(self, config: dict):
-        llm_cfg = config.get("llm", {}).get("openai", {})
+    def __init__(self, config: dict, section: str = "openai"):
+        llm_cfg = config.get("llm", {}).get(section, {})
         api_key = llm_cfg.get("api_key") or config.get("api_key", "")
-        base_url = llm_cfg.get("base_url", "https://api.openai.com/v1")
+        defaults = {"openai": ("https://api.openai.com/v1", "gpt-4o"),
+                    "openrouter": ("https://openrouter.ai/api/v1", "deepseek/deepseek-chat")}
+        base_url = llm_cfg.get("base_url") or defaults.get(section, defaults["openai"])[0]
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        self._model = llm_cfg.get("model", "gpt-4o")
+        self._model = llm_cfg.get("model") or defaults.get(section, defaults["openai"])[1]
+        self._section = section
 
     def _to_openai(self, msgs: list[Message]) -> list[dict]:
         result = []
