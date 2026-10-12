@@ -4,7 +4,18 @@
  */
 const enc = new TextEncoder();
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SECRET_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+function edgeSecretKey(): string {
+  // Nuevas API keys: SUPABASE_SECRET_KEYS es un JSON {"default":"sb_secret_..."}
+  try {
+    const m = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}") as Record<string, string>;
+    if (m && typeof m === "object") {
+      const v = m["default"] ?? Object.values(m)[0];
+      if (typeof v === "string" && v) return v;
+    }
+  } catch { /* cae al fallback legacy */ }
+  return Deno.env.get("SUPABASE_SECRET_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+}
+const SERVICE_ROLE = edgeSecretKey();
 const TOKEN_SECRET = Deno.env.get("XENS_TOKEN_SECRET") ?? "xens-edge-token-secret";
 const MISTRAL_KEY = Deno.env.get("XENS_MISTRAL_KEY") ?? "";
 const OPENROUTER_KEY = Deno.env.get("XENS_OPENROUTER_KEY") ?? "";
