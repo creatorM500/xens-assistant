@@ -39,4 +39,6 @@ dist-portable/
 staging_keys.json
 staging_dbpass.txt
 supabase.json
+keys-nuevas.txt
+*_keys.txt
 _update_verify/

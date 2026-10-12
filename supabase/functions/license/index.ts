@@ -4,7 +4,7 @@
  */
 const enc = new TextEncoder();
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const SERVICE_ROLE = Deno.env.get("SUPABASE_SECRET_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const TOKEN_SECRET = Deno.env.get("XENS_TOKEN_SECRET") ?? "xens-edge-token-secret";
 const MISTRAL_KEY = Deno.env.get("XENS_MISTRAL_KEY") ?? "";
 const OPENROUTER_KEY = Deno.env.get("XENS_OPENROUTER_KEY") ?? "";

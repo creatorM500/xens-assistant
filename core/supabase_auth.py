@@ -73,7 +73,7 @@ class SupabaseAuth:
                         or scfg.get("staging_anon_key") or "")
             else:
                 url = (scfg.get("url") or "https://tzlbgoydgptlhspzdhfu.supabase.co").rstrip("/")
-                anon = (scfg.get("anon_key") or os.environ.get("SUPABASE_ANON_KEY") or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6bGJnb3lkZ3B0bGhzcHpkaGZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM4MTM5NTEsImV4cCI6MjA5OTM4OTk1MX0.euj51hQUQUkWLZHNV_DkX1d0c9qxp9gz5J_AVmjkm30")
+                anon = (scfg.get("anon_key") or os.environ.get("SUPABASE_ANON_KEY") or "sb_publishable_zyk6OBbk3_UZMX3Ozonkug_NCAcgxN7")
             if not anon:
                 return None
             import httpx
