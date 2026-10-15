@@ -286,7 +286,7 @@ def register(name=None, description=None, parameters=None, timeout=None, retry_o
 _TOOL_MODULES = (
     "activity_analyzer", "analytics", "automations", "browser", "calendar", "code_exec",
     "computer", "desktop", "desktop_tray", "email", "event_bus", "files", "goals",
-    "intent", "knowledge", "loop_guard", "media_downloader", "messaging", "modes",
+    "image_gen", "intent", "knowledge", "loop_guard", "media_downloader", "messaging", "modes",
     "monitoring", "music", "native_macros", "plugins", "proactive", "quick_input",
     "rag", "reflection", "reminders", "shell", "simulation_engine", "strategy",
     "sync_tier_config", "system", "tool_search", "uia", "user_profile", "vision",
