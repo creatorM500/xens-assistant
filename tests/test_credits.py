@@ -29,6 +29,9 @@ def main():
     assert cred_mod.model_multiplier("anthropic/claude-sonnet-4") == 20.0
     assert cred_mod.model_multiplier("") == cred_mod.DEFAULT_MULTIPLIER
     assert cred_mod.model_multiplier("openai/gpt-oss-20b") == 1.0
+    assert cred_mod.model_multiplier("deepseek/deepseek-v4.1-flash") == 1.2
+    assert cred_mod.model_multiplier("deepseek/deepseek-v4-pro") == 6.0
+    assert cred_mod.model_multiplier("nvidia/nemotron-3-ultra") == 0.5
 
     # costo: base (prompt + 3.5*out)/1000 * mult, mÃ­nimo 1
     assert c.cost(1000, 0, "deepseek-chat") == 2

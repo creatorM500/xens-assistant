@@ -17,6 +17,12 @@ CREDITS_FILE = CREDITS_DIR / "credits.json"
 MODEL_COSTS = {
     "deepseek-chat": 1.2,
     "deepseek/deepseek-chat": 1.2,
+    "deepseek-v4.1-flash": 1.2,
+    "deepseek/deepseek-v4.1-flash": 1.2,
+    "v4.1-flash": 1.2,
+    "deepseek-v4-pro": 6.0,
+    "deepseek/deepseek-v4-pro": 6.0,
+    "v4-pro": 6.0,
     "mistral-medium-latest": 3.5,
     "mistral-medium": 3.5,
     "mistral-small-2506": 3.5,

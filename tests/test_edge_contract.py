@@ -43,8 +43,8 @@ def test_license_tiers_and_models():
                           ("pro", "35000"), ("premium", "125000")):
         assert tier in src
         assert credits in src
-    for model in ("mistralai/mistral-nemo", "deepseek/deepseek-chat",
-                  "anthropic/claude-sonnet-4"):
+    for model in ("mistralai/mistral-nemo", "deepseek/deepseek-v4.1-flash",
+                  "deepseek/deepseek-v4-pro", "anthropic/claude-sonnet-4"):
         assert model in src, model
 
 

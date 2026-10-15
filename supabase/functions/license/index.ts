@@ -31,17 +31,17 @@ const TIER_CREDITS: Record<string, number> = { free: 5000, lite: 15000, pro: 350
 // MISTRAL_KEY queda solo como último recurso si OpenRouter cae.
 const XENS_ALIAS_MAP: Record<string, {provider:string, model:string}> = {
   Flash: {provider:"openrouter", model:"mistralai/mistral-nemo"},
-  Core: {provider:"openrouter", model:"deepseek/deepseek-chat"},
+  Core: {provider:"openrouter", model:"deepseek/deepseek-v4.1-flash"},
   Think: {provider:"openrouter", model:"deepseek/deepseek-r1"},
   Code: {provider:"openrouter", model:"qwen/qwen-2.5-coder-32b-instruct"},
   Vision: {provider:"openrouter", model:"google/gemini-2.0-flash-001"},
-  Ultra: {provider:"openrouter", model:"anthropic/claude-sonnet-4"},
+  Ultra: {provider:"openrouter", model:"deepseek/deepseek-v4-pro"},
 };
 const DEFAULT_MODELS: Record<string, string> = {
   free: "mistralai/mistral-nemo",
   lite: "mistralai/mistral-nemo",
-  pro: "deepseek/deepseek-chat",
-  premium: "anthropic/claude-sonnet-4",
+  pro: "deepseek/deepseek-v4.1-flash",
+  premium: "deepseek/deepseek-v4-pro",
 };
 const FREE_FALLBACKS = [
   "z-ai/glm-5.2:free",
@@ -117,7 +117,7 @@ async function handleCreditsSpend(body:any): Promise<Response>{
   if(!uid) return json(400,{error:"uid required"});
   const period=new Date().toISOString().slice(0,7);
   // Costo OpenRouter unificado (mult sobre base, igual que core/credits.py).
-  const mult = model.includes("sonnet")?10: model.includes("gpt-4o")?7: model.includes("r1")?6: model.includes("gemini")?4.8: model.includes("nemo")?1.0: model.includes("qwen")||model.includes("coder")?1.5: model.includes("mistral")?3.5: 1.2;
+  const mult = model.includes("sonnet")?10: model.includes("v4-pro")?6: model.includes("gpt-4o")?7: model.includes("r1")?6: model.includes("gemini")?4.8: model.includes("v4.1-flash")||model.includes("v4-flash")?1.2: model.includes("nemo")?1.0: model.includes("nemotron")?0.5: model.includes("qwen")||model.includes("coder")?1.5: model.includes("mistral")?3.5: 1.2;
   const spent_now=Math.max(1,Math.ceil((prompt_tokens+3.5*completion_tokens)/1000*mult));
   try{
     const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/spend_user_credits`,{method:"POST",headers:{...sbHeaders(),prefer:"return=representation"},body:JSON.stringify({p_uid:uid,p_period:period,p_spent:spent_now})});
@@ -180,7 +180,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     : model.includes("gemini") ? "google/gemini-2.0-flash-001"
     : model.includes("coder") || model.includes("qwen") ? "qwen/qwen-2.5-coder-32b-instruct"
     : model.includes("r1") ? "deepseek/deepseek-r1"
-    : "deepseek/deepseek-chat";
+    : "deepseek/deepseek-v4.1-flash";
   const queue = [model];
   if(paidFallback!==model) queue.push(paidFallback);
   for(const m of FREE_FALLBACKS){ if(m!==model && m!==paidFallback) queue.push(m); }
@@ -239,7 +239,7 @@ async function handleChatStream(messages:any, tools:any, tier:string, requestedM
   if((tier==="free"||tier==="lite") && POLLI_KEY) cands.push({url:POLLI_URL,key:POLLI_KEY,mdl:POLLI_MODEL});
   if(OPENROUTER_KEY) cands.push({url:"https://openrouter.ai/api/v1/chat/completions",key:OPENROUTER_KEY,mdl:base});
   if(OPENROUTER_KEY){
-    for(const m of ["deepseek/deepseek-chat", ...FREE_FALLBACKS]){
+    for(const m of ["deepseek/deepseek-v4.1-flash", ...FREE_FALLBACKS]){
       if(m===base) continue;
       cands.push({url:"https://openrouter.ai/api/v1/chat/completions",key:OPENROUTER_KEY,mdl:m});
     }
