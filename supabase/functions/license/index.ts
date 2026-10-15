@@ -19,6 +19,10 @@ const SERVICE_ROLE = edgeSecretKey();
 const TOKEN_SECRET = Deno.env.get("XENS_TOKEN_SECRET") ?? "xens-edge-token-secret";
 const MISTRAL_KEY = Deno.env.get("XENS_MISTRAL_KEY") ?? "";
 const OPENROUTER_KEY = Deno.env.get("XENS_OPENROUTER_KEY") ?? "";
+// Segundo cerebro gratis (Pollinations): primero en free/lite, fallback en el resto.
+const POLLI_KEY = Deno.env.get("XENS_POLLI_KEY") ?? "";
+const POLLI_URL = "https://gen.pollinations.ai/v1/chat/completions";
+const POLLI_MODEL = "community/vendouple/deepseek-v3.2";
 const FREE_CHAT_CAP = parseInt(Deno.env.get("XENS_FREE_CHAT_CAP") ?? "300", 10) || 300;
 
 const TIER_CREDITS: Record<string, number> = { free: 5000, lite: 15000, pro: 35000, premium: 125000 };
@@ -180,9 +184,14 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   const queue = [model];
   if(paidFallback!==model) queue.push(paidFallback);
   for(const m of FREE_FALLBACKS){ if(m!==model && m!==paidFallback) queue.push(m); }
-  for(const m of queue){
-    if(await tryUpstream(OR_URL,OPENROUTER_KEY,m)) break;
-    if(r && (r as Response).status!==429 && !String(lastErr).includes("Provider returned")) break;
+  // Segundo cerebro gratis primero en free/lite (cuesta ~cero).
+  let polliOk = false;
+  if((tier==="free"||tier==="lite") && POLLI_KEY){ polliOk = await tryUpstream(POLLI_URL,POLLI_KEY,POLLI_MODEL); }
+  if(!polliOk){
+    for(const m of queue){
+      if(await tryUpstream(OR_URL,OPENROUTER_KEY,m)) break;
+      if(r && (r as Response).status!==429 && !String(lastErr).includes("Provider returned")) break;
+    }
   }
   if(!(r && (r as Response).status<400) && MISTRAL_KEY && (model.includes("mistral")||model.includes("codestral")||model.includes("pixtral")||tier==="free")){
     await tryUpstream("https://api.mistral.ai/v1/chat/completions",MISTRAL_KEY,
@@ -224,8 +233,10 @@ async function tryStream(url:string,key:string,mdl:string,messages:any,tools:any
 async function handleChatStream(messages:any, tools:any, tier:string, requestedModel:string=""): Promise<Response>{
   const base = requestedModel || (DEFAULT_MODELS[tier] ?? DEFAULT_MODELS.free);
   const isMistral = base.includes("mistral") || base.includes("codestral") || base.includes("pixtral");
-  // OpenRouter primero (facturación unificada); Mistral directo al final.
+  // OpenRouter primero (facturación unificada); Pollinations gratis primero en
+  // free/lite y como fallback previo a Mistral en el resto; Mistral al final.
   const cands: Array<{url:string,key:string,mdl:string}> = [];
+  if((tier==="free"||tier==="lite") && POLLI_KEY) cands.push({url:POLLI_URL,key:POLLI_KEY,mdl:POLLI_MODEL});
   if(OPENROUTER_KEY) cands.push({url:"https://openrouter.ai/api/v1/chat/completions",key:OPENROUTER_KEY,mdl:base});
   if(OPENROUTER_KEY){
     for(const m of ["deepseek/deepseek-chat", ...FREE_FALLBACKS]){
@@ -233,6 +244,7 @@ async function handleChatStream(messages:any, tools:any, tier:string, requestedM
       cands.push({url:"https://openrouter.ai/api/v1/chat/completions",key:OPENROUTER_KEY,mdl:m});
     }
   }
+  if(POLLI_KEY && tier!=="free" && tier!=="lite") cands.push({url:POLLI_URL,key:POLLI_KEY,mdl:POLLI_MODEL});
   if(isMistral && MISTRAL_KEY) cands.push({url:"https://api.mistral.ai/v1/chat/completions",key:MISTRAL_KEY,mdl:base});
   for(const c of cands){
     const s=await tryStream(c.url,c.key,c.mdl,messages,tools);

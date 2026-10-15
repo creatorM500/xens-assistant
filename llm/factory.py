@@ -11,6 +11,7 @@ _PROVIDER_MAP = {
     "mistral": MistralProvider,
     "openai": OpenAIProvider,
     "openrouter": OpenAIProvider,
+    "pollinations": OpenAIProvider,
 }
 
 def create_provider(config: dict) -> BaseLLM:
@@ -24,7 +25,7 @@ def create_provider(config: dict) -> BaseLLM:
             continue
 
         try:
-            p = cls(config, section=name) if name in ("openai", "openrouter") else cls(config)
+            p = cls(config, section=name) if name in ("openai", "openrouter", "pollinations") else cls(config)
             providers[name] = p
             logger.info("Loaded provider: %s", name)
         except Exception as e:

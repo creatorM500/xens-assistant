@@ -44,6 +44,8 @@ MODEL_COSTS = {
     "llama-3.3-70b": 2.0,
     "mistral-nemo": 1.0,
     "mistralai/mistral-nemo": 1.0,
+    "community/vendouple/deepseek-v3.2": 0.5,
+    "deepseek-v3.2": 0.5,
 }
 
 DEFAULT_MULTIPLIER = 3.5

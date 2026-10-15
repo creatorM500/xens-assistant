@@ -94,7 +94,7 @@ class ConsoleChat:
 
     def _provider_status(self) -> str:
         parts = []
-        for name in ("mistral", "openai", "openrouter"):
+        for name in ("mistral", "openai", "openrouter", "pollinations"):
             cfg = config.get("llm", {}).get(name, {})
             if cfg.get("api_key"):
                 parts.append(f"{name}({_mask(cfg['api_key'])})")
@@ -310,7 +310,7 @@ class ConsoleChat:
 
         elif cmd == "providers":
             print(f"  {_CYAN}Providers:{_RESET}")
-            for name in ("mistral", "openai", "openrouter"):
+            for name in ("mistral", "openai", "openrouter", "pollinations"):
                 cfg = config.get("llm", {}).get(name, {})
                 if cfg.get("api_key"):
                     print(f"    {name:<11} {_GREEN}configured{_RESET} (key {_mask(cfg['api_key'])})")

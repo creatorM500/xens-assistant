@@ -27,6 +27,10 @@ DEFAULTS = {
             "api_key": "",
             "base_url": "https://openrouter.ai/api/v1",
         },
+        "pollinations": {
+            "api_key": "",
+            "base_url": "https://gen.pollinations.ai/v1",
+        },
     },
 }
 
@@ -54,6 +58,10 @@ def load():
     mistral_cfg = cfg.get("llm", {}).get("mistral", {})
     if isinstance(mistral_cfg, dict) and not mistral_cfg.get("api_key") and cfg.get("api_key"):
         cfg["llm"]["mistral"]["api_key"] = cfg["api_key"]
+    polli_cfg = cfg.get("llm", {}).get("pollinations", {})
+    polli_env = os.environ.get("AINSLUP_POLLI_KEY") or os.environ.get("POLLINATIONS_API_KEY")
+    if isinstance(polli_cfg, dict) and not polli_cfg.get("api_key") and polli_env:
+        cfg["llm"]["pollinations"]["api_key"] = polli_env.strip()
     return cfg
 
 def save(cfg):

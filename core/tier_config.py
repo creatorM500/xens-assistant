@@ -23,6 +23,7 @@ ALIAS_PROVIDER = {k: v["provider"] for k, v in XENS_ALIASES.items()}
 DEFAULT_CONFIG = {
     "free": {
         "models": [
+            {"provider": "pollinations", "model": "community/vendouple/deepseek-v3.2"},
             {"alias": "Flash", "provider": "openrouter", "model": "mistralai/mistral-nemo"},
             {"alias": "Core", "provider": "openrouter", "model": "deepseek/deepseek-chat"},
         ],
@@ -83,6 +84,17 @@ class TierConfig:
                 self._data = data
                 self._source = str(path)
                 logger.info("Loaded tier config from %s", path)
+                # Migración aditiva (no destructiva): segundo cerebro gratis
+                # (Pollinations) al frente del tier free en configs ya existentes.
+                try:
+                    if "pollinations" not in models_blob:
+                        free_models = self._data.get("free", {}).get("models")
+                        if isinstance(free_models, list):
+                            free_models.insert(0, {"provider": "pollinations", "model": "community/vendouple/deepseek-v3.2"})
+                            path.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
+                            logger.info("Tier config migrada: pollinations al frente de free")
+                except Exception:
+                    logger.exception("No se pudo migrar tier config con pollinations")
                 return
             except Exception as e:
                 logger.exception("Failed to load tier config from %s", path)

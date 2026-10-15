@@ -13,6 +13,8 @@ MODEL_ROLES = {
     "qwen-2.5-coder-32b-instruct": "specialized",
     "qwen/qwen-2.5-coder-32b-instruct": "specialized",
     "deepseek-chat": "cheap",
+    "community/vendouple/deepseek-v3.2": "cheap",
+    "deepseek-v3.2": "cheap",
     "mistral-medium-latest": "medium",
     "mistral-medium": "medium",
     "mistral-small-2506": "medium",

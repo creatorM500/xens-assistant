@@ -28,6 +28,7 @@ nunca ve las API keys de IA: solo recibe un token y el servidor llama al modelo.
 supabase secrets set XENS_TOKEN_SECRET=<random-largo> \
   XENS_MISTRAL_KEY=<key-mistral> \
   XENS_OPENROUTER_KEY=<sk-or-...> \
+  XENS_POLLI_KEY=<key-pollinations> \
   XENS_FREE_CHAT_CAP=300 \
   --project-ref tzlbgoydgptlhspzdhfu
 

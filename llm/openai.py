@@ -15,7 +15,8 @@ class OpenAIProvider(BaseLLM):
         llm_cfg = config.get("llm", {}).get(section, {})
         api_key = llm_cfg.get("api_key") or config.get("api_key", "")
         defaults = {"openai": ("https://api.openai.com/v1", "gpt-4o"),
-                    "openrouter": ("https://openrouter.ai/api/v1", "deepseek/deepseek-chat")}
+                    "openrouter": ("https://openrouter.ai/api/v1", "deepseek/deepseek-chat"),
+                    "pollinations": ("https://gen.pollinations.ai/v1", "community/vendouple/deepseek-v3.2")}
         base_url = llm_cfg.get("base_url") or defaults.get(section, defaults["openai"])[0]
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self._model = llm_cfg.get("model") or defaults.get(section, defaults["openai"])[1]
