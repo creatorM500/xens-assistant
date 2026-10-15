@@ -207,27 +207,11 @@ async function tryStream(url:string,key:string,mdl:string,messages:any,tools:any
   const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(), 25000);
   try{
     const r=await fetch(url,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify(payload), signal: ctrl.signal});
+    if(r.status>=400 || !r.body){ try{ await r.cancel(); }catch{} clearTimeout(t); return null; }
+    // Passthrough directo del body nativo (el re-empaquetado manual con
+    // ReadableStream rompía la entrega en este runtime: 200 vacío).
     clearTimeout(t);
-    if(r.status>=400 || !r.body){ try{ await r.cancel(); }catch{} return null; }
-    // Validar primer byte: algunos modelos abren 200 y cierran sin datos.
-    const reader=r.body.getReader();
-    const first = await Promise.race([
-      reader.read(),
-      new Promise<never>((_,rej)=>setTimeout(()=>rej(new Error("first-byte-timeout")),15000)),
-    ]).catch(()=>null) as ReadableStreamReadResult<Uint8Array>|null;
-    if(!first || first.done || !first.value || first.value.length===0){ try{ reader.releaseLock(); await r.cancel(); }catch{} return null; }
-    const rest = reader;
-    const stream = new ReadableStream<Uint8Array>({
-      start(c){ c.enqueue(first.value); },
-      async pull(c){
-        const {value,done} = await rest.read();
-        if(done){ c.close(); try{ rest.releaseLock(); }catch{} }
-        else c.enqueue(value);
-      },
-      cancel(){ try{ rest.cancel(); }catch{} },
-    });
-    const text = stream.pipeThrough(new TextDecoderStream());
-    return new Response(text,{headers:{"content-type":"text/event-stream", "cache-control":"no-cache", ...CORS}});
+    return new Response(r.body,{headers:{"content-type":"text/event-stream", "cache-control":"no-cache", ...CORS}});
   }catch{ clearTimeout(t); return null; }
 }
 async function handleChatStream(messages:any, tools:any, tier:string, requestedModel:string=""): Promise<Response>{
@@ -289,8 +273,7 @@ async function accountCredits(uid:string,tier:string,need=1):Promise<{allowed:bo
   }catch{ return {allowed:true,remaining:limit,limit}; }
 }
 
-Deno.serve(async (req:Request)=>{
-  if(req.method==="OPTIONS") return new Response(null,{status:204,headers:CORS});
+Deno.serve(async (req:Request)=>{  if(req.method==="OPTIONS") return new Response(null,{status:204,headers:CORS});
   const url=new URL(req.url); const path=url.pathname.split("/").filter(Boolean).pop()??"";
   try{
     if(req.method==="POST"&&path==="activate") return await handleActivate(req, await req.json().catch(()=>({})));
