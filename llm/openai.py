@@ -16,7 +16,7 @@ class OpenAIProvider(BaseLLM):
         api_key = llm_cfg.get("api_key") or config.get("api_key", "")
         defaults = {"openai": ("https://api.openai.com/v1", "gpt-4o"),
                     "openrouter": ("https://openrouter.ai/api/v1", "deepseek/deepseek-chat"),
-                    "pollinations": ("https://gen.pollinations.ai/v1", "community/vendouple/deepseek-v3.2")}
+                    "pollinations": ("https://gen.pollinations.ai/v1", "nvidia/nemotron-3-ultra")}
         base_url = llm_cfg.get("base_url") or defaults.get(section, defaults["openai"])[0]
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self._model = llm_cfg.get("model") or defaults.get(section, defaults["openai"])[1]
@@ -49,27 +49,30 @@ class OpenAIProvider(BaseLLM):
 
     async def chat(self, messages: list[Message], tools: list = None, **kwargs) -> LLMResult:
         oa_msgs = self._to_openai(messages)
-        oa_tools = tools if tools else None
-        resp = await self._client.chat.completions.create(
-            model=kwargs.get("model", self._model),
-            messages=oa_msgs,
-            tools=oa_tools,
-            temperature=kwargs.get("temperature", 0.7),
-            max_tokens=kwargs.get("max_tokens", 8192),
-        )
+        params: dict = {
+            "model": kwargs.get("model", self._model),
+            "messages": oa_msgs,
+            "temperature": kwargs.get("temperature", 0.7),
+            "max_tokens": kwargs.get("max_tokens", 8192),
+        }
+        # Pollinations rechaza "tools": null (quiere array u omisión).
+        if tools:
+            params["tools"] = tools
+        resp = await self._client.chat.completions.create(**params)
         return self._from_openai(resp.choices[0], resp.usage)
 
     async def chat_stream(self, messages: list[Message], tools: list = None, **kwargs) -> AsyncIterator[str]:
         oa_msgs = self._to_openai(messages)
-        oa_tools = tools if tools else None
-        stream = await self._client.chat.completions.create(
-            model=kwargs.get("model", self._model),
-            messages=oa_msgs,
-            tools=oa_tools,
-            temperature=kwargs.get("temperature", 0.7),
-            max_tokens=kwargs.get("max_tokens", 8192),
-            stream=True,
-        )
+        params: dict = {
+            "model": kwargs.get("model", self._model),
+            "messages": oa_msgs,
+            "temperature": kwargs.get("temperature", 0.7),
+            "max_tokens": kwargs.get("max_tokens", 8192),
+            "stream": True,
+        }
+        if tools:
+            params["tools"] = tools
+        stream = await self._client.chat.completions.create(**params)
         async for chunk in stream:
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta and delta.content:

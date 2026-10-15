@@ -15,6 +15,8 @@ MODEL_ROLES = {
     "deepseek-chat": "cheap",
     "community/vendouple/deepseek-v3.2": "cheap",
     "deepseek-v3.2": "cheap",
+    "nvidia/nemotron-3-ultra": "cheap",
+    "nemotron-3-ultra": "cheap",
     "mistral-medium-latest": "medium",
     "mistral-medium": "medium",
     "mistral-small-2506": "medium",

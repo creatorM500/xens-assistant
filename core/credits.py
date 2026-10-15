@@ -46,6 +46,8 @@ MODEL_COSTS = {
     "mistralai/mistral-nemo": 1.0,
     "community/vendouple/deepseek-v3.2": 0.5,
     "deepseek-v3.2": 0.5,
+    "nvidia/nemotron-3-ultra": 0.5,
+    "nemotron-3-ultra": 0.5,
 }
 
 DEFAULT_MULTIPLIER = 3.5

@@ -22,7 +22,7 @@ const OPENROUTER_KEY = Deno.env.get("XENS_OPENROUTER_KEY") ?? "";
 // Segundo cerebro gratis (Pollinations): primero en free/lite, fallback en el resto.
 const POLLI_KEY = Deno.env.get("XENS_POLLI_KEY") ?? "";
 const POLLI_URL = "https://gen.pollinations.ai/v1/chat/completions";
-const POLLI_MODEL = "community/vendouple/deepseek-v3.2";
+const POLLI_MODEL = "nvidia/nemotron-3-ultra";
 const FREE_CHAT_CAP = parseInt(Deno.env.get("XENS_FREE_CHAT_CAP") ?? "300", 10) || 300;
 
 const TIER_CREDITS: Record<string, number> = { free: 5000, lite: 15000, pro: 35000, premium: 125000 };

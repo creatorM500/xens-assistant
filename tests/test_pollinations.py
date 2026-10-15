@@ -14,7 +14,7 @@ from ainslup_assistant.core import credits as cred_mod
 from ainslup_assistant.core.model_router import _model_role
 from ainslup_assistant.core.tier_config import DEFAULT_CONFIG
 
-POLLI_MODEL = "community/vendouple/deepseek-v3.2"
+POLLI_MODEL = "nvidia/nemotron-3-ultra"
 
 
 def test_provider_defaults():

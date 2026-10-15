@@ -23,7 +23,7 @@ ALIAS_PROVIDER = {k: v["provider"] for k, v in XENS_ALIASES.items()}
 DEFAULT_CONFIG = {
     "free": {
         "models": [
-            {"provider": "pollinations", "model": "community/vendouple/deepseek-v3.2"},
+            {"provider": "pollinations", "model": "nvidia/nemotron-3-ultra"},
             {"alias": "Flash", "provider": "openrouter", "model": "mistralai/mistral-nemo"},
             {"alias": "Core", "provider": "openrouter", "model": "deepseek/deepseek-chat"},
         ],
@@ -90,7 +90,7 @@ class TierConfig:
                     if "pollinations" not in models_blob:
                         free_models = self._data.get("free", {}).get("models")
                         if isinstance(free_models, list):
-                            free_models.insert(0, {"provider": "pollinations", "model": "community/vendouple/deepseek-v3.2"})
+                            free_models.insert(0, {"provider": "pollinations", "model": "nvidia/nemotron-3-ultra"})
                             path.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
                             logger.info("Tier config migrada: pollinations al frente de free")
                 except Exception:
