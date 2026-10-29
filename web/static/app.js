@@ -1298,6 +1298,12 @@
     document.querySelectorAll(".tool-permission").forEach((s) => permissions[s.dataset.tool] = s.value);
     sendToServer({type:"set_security", permissions});
   }));
+  const exportPrivacyBtn = document.getElementById("exportPrivacyBtn");
+  if (exportPrivacyBtn) exportPrivacyBtn.addEventListener("click", () => sendToServer({type:"privacy_export"}));
+  const deletePrivacyBtn = document.getElementById("deletePrivacyBtn");
+  if (deletePrivacyBtn) deletePrivacyBtn.addEventListener("click", () => {
+    if (window.confirm("¿Borrar todo el historial local de AINSLUP? Esta acción no se puede deshacer.")) sendToServer({type:"privacy_delete_local"});
+  });
 
   function closeSettings() {
     el.settingsOverlay.classList.remove("open");
@@ -1619,6 +1625,12 @@
       }
       case "data_notice":
         showToast && showToast(`Privacidad: ${data.shared || "Se comparten datos con proveedores externos."}`);
+        break;
+      case "privacy_export":
+        showToast(`Datos exportados en: ${data.path || "~/.ainslup/privacy_export.json"}`);
+        break;
+      case "privacy_deleted":
+        showToast("Historial local eliminado");
         break;
       case "content":
         appendAssistantChunk(data.content ?? "", reqId);

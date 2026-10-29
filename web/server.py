@@ -1,4 +1,4 @@
-import asyncio, copy, json, logging
+import asyncio, copy, json, logging, shutil
 import uuid
 from pathlib import Path
 
@@ -181,6 +181,30 @@ class WebServer:
                         if data.get("type") == "set_security":
                             cfg = security.set_settings(data.get("safe_mode"), data.get("permissions"))
                             await send({"type": "security", **cfg})
+                            continue
+
+                        if data.get("type") == "privacy_export":
+                            from ..core.paths import DATA_HOME
+                            export_path = DATA_HOME / "privacy_export.json"
+                            payload = {"sessions": []}
+                            sessions_dir = DATA_HOME / "sessions"
+                            if sessions_dir.exists():
+                                for path in sessions_dir.glob("*.json"):
+                                    try:
+                                        payload["sessions"].append(json.loads(path.read_text(encoding="utf-8")))
+                                    except Exception:
+                                        pass
+                            export_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+                            await send({"type": "privacy_export", "path": str(export_path), "success": True})
+                            continue
+
+                        if data.get("type") == "privacy_delete_local":
+                            from ..core.paths import DATA_HOME
+                            sessions_dir = DATA_HOME / "sessions"
+                            if sessions_dir.exists():
+                                shutil.rmtree(sessions_dir, ignore_errors=True)
+                            session = Session("web")
+                            await send({"type": "privacy_deleted", "success": True})
                             continue
 
                         if data.get("type") == "auth":
