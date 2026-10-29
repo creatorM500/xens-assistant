@@ -104,11 +104,28 @@
       </div>
 
       <p class="pricing-note">
-        Ainslup Credits: 1 credit = 1.000 tokens base-equivalentes. AINSLUP optimiza el costo por tarea:
-        una tarea sencilla usa un modelo económico, y solo las tareas complejas consumen modelos
-        de alto rendimiento. Los créditos se renuevan el primer día de cada mes.
+        <b>Cómo leer los créditos:</b> 1 Ainslup Credit = 1.000 tokens base-equivalentes.
+        El consumo depende del texto enviado, la respuesta y el modelo; no existe un precio fijo
+        por conversación. Los créditos se renuevan el primer día de cada mes y no se acumulan.
       </p>
       <p class="pricing-note">Modelos AINSLUP: Flash (Mistral Nemo), Core (DeepSeek Chat), Think (DeepSeek R1), Code (Qwen 2.5 Coder), Vision (Gemini 2.0 Flash), Ultra (Claude Sonnet 4). Ver <a href="terms.html#3.1">Términos §3.1</a> para correspondencia exacta y proveedores.</p>
+
+      <div class="compare-wrap">
+        <h3 class="compare-title">¿Cuánto rinden los créditos?</h3>
+        <p class="pricing-note">Estimaciones para una interacción estándar de aproximadamente 800 tokens de contexto y 400 tokens de respuesta. Una conversación larga puede consumir más porque incluye su historial.</p>
+        <div class="compare-scroll">
+          <table class="compare-table">
+            <thead><tr><th>Modelo</th><th>Multiplicador</th><th>Ejemplo por interacción</th><th>Free (5.000)</th></tr></thead>
+            <tbody>
+              <tr><td>Flash / Nemotron gratis</td><td>0,5–1×</td><td>≈ 2–3 créditos</td><td>≈ 1.600–2.500</td></tr>
+              <tr><td>Core — DeepSeek V4 Flash</td><td>1,2×</td><td>≈ 3 créditos</td><td>≈ 1.600</td></tr>
+              <tr><td>Think — DeepSeek R1</td><td>8×</td><td>≈ 18 créditos</td><td>≈ 275</td></tr>
+              <tr><td>Ultra — Claude Sonnet</td><td>20×</td><td>≈ 44 créditos</td><td>No incluido en Free</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="pricing-note"><b>Imágenes:</b> la generación de imágenes se realiza mediante Pollinations y actualmente no consume Ainslup Credits. Puede estar sujeta a disponibilidad, límites del proveedor o al plan/modelo seleccionado.</p>
+      </div>
 
       <!-- ---- TABLA COMPARATIVA COMPLETA ---- -->
       <div class="compare-wrap">
@@ -156,7 +173,23 @@
         </div>
         <div class="faq-item">
           <h4>¿Qué pasa si agoto mis Ainslup Credits?</h4>
-          <p>El chat se bloquea hasta el primer día del mes siguiente, cuando los créditos se renuevan automáticamente. Si necesitas más antes, puedes mejorar tu plan.</p>
+          <p>Las nuevas solicitudes que consumen créditos se detienen hasta el primer día del mes siguiente. Las tareas ya iniciadas pueden terminar. Puedes cambiar a un plan superior si necesitas continuar antes.</p>
+        </div>
+        <div class="faq-item">
+          <h4>¿Cuántas conversaciones incluye cada plan?</h4>
+          <p>No hay un número fijo: una conversación corta consume mucho menos que una conversación larga con historial, herramientas o razonamiento. Como referencia, una interacción estándar Core cuesta unos 3 créditos: aproximadamente 1.600 interacciones con Free, 5.000 con Lite, 11.600 con Pro y 41.600 con Premium. Son estimaciones, no un límite de conversaciones.</p>
+        </div>
+        <div class="faq-item">
+          <h4>¿Cuánto cuesta Claude o DeepSeek R1?</h4>
+          <p>El coste se calcula con el multiplicador del modelo y los tokens reales. En un ejemplo estándar, DeepSeek R1 cuesta aproximadamente 18 créditos y Claude Sonnet aproximadamente 44 créditos. Las respuestas largas o con mucho contexto consumen más.</p>
+        </div>
+        <div class="faq-item">
+          <h4>¿Cuánto consume una imagen?</h4>
+          <p>Actualmente, generar una imagen no descuenta Ainslup Credits. Se procesa mediante Pollinations y puede estar sujeto a sus límites y disponibilidad. Si esta política cambia, se mostrará el coste antes de generar la imagen.</p>
+        </div>
+        <div class="faq-item">
+          <h4>¿Se acumulan los créditos no utilizados?</h4>
+          <p>No. Los créditos son mensuales, no se transfieren al mes siguiente y se renuevan automáticamente el primer día de cada mes.</p>
         </div>
         <div class="faq-item">
           <h4>¿Cómo decide AINSLUP qué modelo usa?</h4>
