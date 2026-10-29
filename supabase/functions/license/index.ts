@@ -30,19 +30,21 @@ const TIER_CREDITS: Record<string, number> = { free: 5000, lite: 15000, pro: 350
 // Facturación unificada: todo por OpenRouter (un solo pago).
 // MISTRAL_KEY queda solo como último recurso si OpenRouter cae.
 const XENS_ALIAS_MAP: Record<string, {provider:string, model:string}> = {
-  Flash: {provider:"openrouter", model:"mistralai/mistral-nemo"},
+  Flash: {provider:"openrouter", model:"xiaomi/mimo-v2.6-flash"},
   Core: {provider:"openrouter", model:"deepseek/deepseek-v4.1-flash"},
-  Think: {provider:"openrouter", model:"deepseek/deepseek-r1"},
+  Think: {provider:"openrouter", model:"xiaomi/mimo-v2.6-flash"},
   Code: {provider:"openrouter", model:"qwen/qwen-2.5-coder-32b-instruct"},
   Vision: {provider:"openrouter", model:"google/gemini-2.0-flash-001"},
-  Ultra: {provider:"openrouter", model:"deepseek/deepseek-v4-pro"},
+  Ultra: {provider:"openrouter", model:"minimax/minimax-m3.1-flash"},
 };
 const DEFAULT_MODELS: Record<string, string> = {
-  free: "mistralai/mistral-nemo",
-  lite: "mistralai/mistral-nemo",
+  free: "xiaomi/mimo-v2.6-flash",
+  lite: "xiaomi/mimo-v2.6-flash",
   pro: "deepseek/deepseek-v4.1-flash",
-  premium: "deepseek/deepseek-v4-pro",
+  premium: "minimax/minimax-m3.1-flash",
 };
+// Compatibilidad: se conservan como fallback, no como primera elección.
+const LEGACY_MODEL_FALLBACKS = ["mistralai/mistral-nemo", "deepseek/deepseek-v4-pro", "anthropic/claude-sonnet-4"];
 const FREE_FALLBACKS = [
   "z-ai/glm-5.2:free",
   "nvidia/nemotron-3-ultra-550b-a55b:free",

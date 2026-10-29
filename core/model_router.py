@@ -8,6 +8,10 @@ logger = logging.getLogger("xens.router")
 # Roles de costo por modelo. El router elige el orden barato -> capaz según
 # la clase de tarea, para que una tarea sencilla nunca pague un modelo caro.
 MODEL_ROLES = {
+    "xiaomi/mimo-v2.6-flash": "cheap",
+    "mimo-v2.6-flash": "cheap",
+    "minimax/minimax-m3.1-flash": "specialized",
+    "minimax-m3.1-flash": "specialized",
     "mistral-nemo": "cheap",
     "mistralai/mistral-nemo": "cheap",
     "qwen-2.5-coder-32b-instruct": "specialized",

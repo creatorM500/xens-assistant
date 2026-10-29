@@ -10,12 +10,12 @@ TIER_FILE = CONFIG_DIR / "tier_config.json"
 # Facturación unificada OpenRouter: todos los alias van por OpenRouter.
 # Mistral directo solo queda como respaldo de emergencia en el edge.
 XENS_ALIASES = {
-    "Flash": {"provider": "openrouter", "model": "mistralai/mistral-nemo", "label": "Flash — rápido", "use": "chat diario"},
+    "Flash": {"provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash", "label": "Flash — rápido y económico", "use": "chat diario"},
     "Core": {"provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash", "label": "Core — equilibrado", "use": "resumen/instrucciones"},
-    "Think": {"provider": "openrouter", "model": "deepseek/deepseek-r1", "label": "Think — razonamiento", "use": "lógica/mates"},
+    "Think": {"provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash", "label": "Think — razonamiento económico", "use": "lógica/mates"},
     "Code": {"provider": "openrouter", "model": "qwen/qwen-2.5-coder-32b-instruct", "label": "Code — código", "use": "refactor/debug"},
     "Vision": {"provider": "openrouter", "model": "google/gemini-2.0-flash-001", "label": "Vision — imagen", "use": "pantalla/OCR"},
-    "Ultra": {"provider": "openrouter", "model": "deepseek/deepseek-v4-pro", "label": "Ultra — frontera", "use": "análisis profundo"},
+    "Ultra": {"provider": "openrouter", "model": "minimax/minimax-m3.1-flash", "label": "Ultra — agente de alta calidad", "use": "análisis profundo"},
 }
 ALIAS_TO_MODEL = {k: v["model"] for k, v in XENS_ALIASES.items()}
 ALIAS_PROVIDER = {k: v["provider"] for k, v in XENS_ALIASES.items()}
@@ -24,14 +24,14 @@ DEFAULT_CONFIG = {
     "free": {
         "models": [
             {"provider": "pollinations", "model": "nvidia/nemotron-3-ultra"},
-            {"alias": "Flash", "provider": "openrouter", "model": "mistralai/mistral-nemo"},
+            {"alias": "Flash", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash"},
             {"alias": "Core", "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash"},
         ],
         "credits": 5000,
     },
     "lite": {
         "models": [
-            {"alias": "Flash", "provider": "openrouter", "model": "mistralai/mistral-nemo"},
+            {"alias": "Flash", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash"},
             {"alias": "Core", "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash"},
             {"alias": "Vision", "provider": "openrouter", "model": "google/gemini-2.0-flash-001"},
         ],
@@ -39,9 +39,9 @@ DEFAULT_CONFIG = {
     },
     "pro": {
         "models": [
-            {"alias": "Flash", "provider": "openrouter", "model": "mistralai/mistral-nemo"},
+            {"alias": "Flash", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash"},
             {"alias": "Core", "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash"},
-            {"alias": "Think", "provider": "openrouter", "model": "deepseek/deepseek-r1"},
+            {"alias": "Think", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash"},
             {"alias": "Code", "provider": "openrouter", "model": "qwen/qwen-2.5-coder-32b-instruct"},
             {"alias": "Vision", "provider": "openrouter", "model": "google/gemini-2.0-flash-001"},
         ],
@@ -49,13 +49,14 @@ DEFAULT_CONFIG = {
     },
     "premium": {
         "models": [
-            {"alias": "Flash", "provider": "openrouter", "model": "mistralai/mistral-nemo"},
+            {"alias": "Flash", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash"},
             {"alias": "Core", "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash"},
-            {"alias": "Think", "provider": "openrouter", "model": "deepseek/deepseek-r1"},
+            {"alias": "Think", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash"},
             {"alias": "Code", "provider": "openrouter", "model": "qwen/qwen-2.5-coder-32b-instruct"},
             {"alias": "Vision", "provider": "openrouter", "model": "google/gemini-2.0-flash-001"},
-            {"alias": "Ultra", "provider": "openrouter", "model": "deepseek/deepseek-v4-pro"},
-            {"alias": "Ultra", "provider": "openrouter", "model": "anthropic/claude-sonnet-4"},
+            {"alias": "Ultra", "provider": "openrouter", "model": "minimax/minimax-m3.1-flash"},
+            {"alias": "Ultra", "provider": "openrouter", "model": "deepseek/deepseek-v4-pro", "alt": True},
+            {"alias": "Ultra", "provider": "openrouter", "model": "anthropic/claude-sonnet-4", "alt": True},
             {"alias": "Ultra", "provider": "openrouter", "model": "google/gemini-2.0-flash-001", "alt": True},
         ],
         "credits": 125000,
@@ -80,7 +81,7 @@ class TierConfig:
                 # Migración: configs viejas (sin lite o con ids Mistral directos)
                 # sombrearían los defaults nuevos. Se reemplazan una vez.
                 models_blob = json.dumps(data)
-                if "lite" not in data or "mistral-small-2506" in models_blob or "pixtral-large" in models_blob or "deepseek-v4" not in models_blob:
+                if "lite" not in data or "mistral-small-2506" in models_blob or "mistralai/mistral-nemo" in models_blob or "pixtral-large" in models_blob or "deepseek-v4" not in models_blob:
                     raise ValueError("stale tier config, migrating to defaults")
                 self._data = data
                 self._source = str(path)

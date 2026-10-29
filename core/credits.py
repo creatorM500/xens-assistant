@@ -15,6 +15,10 @@ CREDITS_FILE = CREDITS_DIR / "credits.json"
 #   credits = (prompt_tokens + 3.5 * completion_tokens) / 1000 * multiplier
 # Output pesa 3.5x input en precio real.
 MODEL_COSTS = {
+    "xiaomi/mimo-v2.6-flash": 0.8,
+    "mimo-v2.6-flash": 0.8,
+    "minimax/minimax-m3.1-flash": 2.0,
+    "minimax-m3.1-flash": 2.0,
     "deepseek-chat": 1.2,
     "deepseek/deepseek-chat": 1.2,
     "deepseek-v4.1-flash": 1.2,
