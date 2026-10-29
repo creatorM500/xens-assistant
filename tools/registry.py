@@ -41,7 +41,7 @@ class ToolRegistry:
         self._tier_map = _load_tier_map()
 
     def register(self, name, handler, description, parameters=None,
-                 timeout=60, retry_on_error=False, tier="free", internal=False):
+                 timeout=60, retry_on_error=False, tier="free", internal=False, risk="safe"):
         if name in self._tools:
             logger.warning(f"Tool '{name}' already registered, overwriting")
         effective_tier = self._tier_map.get(name, tier)
@@ -53,6 +53,7 @@ class ToolRegistry:
             "retry_on_error": retry_on_error,
             "tier": effective_tier,
             "internal": internal,
+            "risk": risk,
         }
         self._tier_map[name] = effective_tier
 
@@ -135,6 +136,14 @@ class ToolRegistry:
             validated = self._validate_args(tool["parameters"], args)
         except ToolError as e:
             return json.dumps({"error": e.message, "code": e.code, "success": False})
+
+        from ..core import security
+        allowed, reason = await security.authorize(name, validated, security.risk_for(name) or tool.get("risk", "safe"))
+        if reason == "SIMULATED":
+            return json.dumps({"success": True, "simulated": True, "tool": name,
+                               "message": "Modo seguro: no se realizó ningún cambio"})
+        if not allowed:
+            return json.dumps({"error": reason, "code": "SECURITY_DENIED", "success": False})
 
         for attempt in range(2 if tool["retry_on_error"] else 1):
             try:
@@ -270,7 +279,7 @@ def _schema_from_signature(fn) -> dict:
     return {"type": "object", "properties": props, "required": required}
 
 
-def register(name=None, description=None, parameters=None, timeout=None, retry_on_error=False, tier=None, internal=False):
+def register(name=None, description=None, parameters=None, timeout=None, retry_on_error=False, tier=None, internal=False, risk="safe"):
     """Decorator that auto-registers a function as a tool when the module is imported."""
     def decorator(fn):
         _name = name or fn.__name__
@@ -278,7 +287,7 @@ def register(name=None, description=None, parameters=None, timeout=None, retry_o
         params = parameters if parameters is not None else _schema_from_signature(fn)
         _params = params or {"type": "object", "properties": {}}
         _tier = tier or DEFAULT_TIER
-        registry.register(_name, fn, _desc, _params, timeout or 60, retry_on_error or False, _tier, internal)
+        registry.register(_name, fn, _desc, _params, timeout or 60, retry_on_error or False, _tier, internal, risk)
         return fn
     return decorator
 

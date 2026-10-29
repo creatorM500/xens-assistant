@@ -114,7 +114,7 @@ def read_file(path: str, binary: bool = False, offset: int = 0, limit: int = 200
     except Exception as e:
         return json.dumps({"error": f"Failed to read file: {e}", "success": False})
 
-@register(name="write_file", description="Write content to a file. Creates directories. Supports append mode and binary base64 write.", tier="free")
+@register(name="write_file", description="Write content to a file. Creates directories. Supports append mode and binary base64 write.", tier="free", risk="confirm")
 def write_file(path: str, content: str = "", binary: bool = False, append: bool = False) -> str:
     try:
         p = _resolve(path)

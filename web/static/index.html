@@ -232,6 +232,17 @@
         <a href="pricing.html" class="btn-link">Ver planes y precios →</a>
       </div>
 
+      <div class="modal-section">
+        <span class="modal-label">Seguridad y privacidad</span>
+        <div class="modal-row"><label for="safeModeToggle">Modo seguro / simulación</label><input type="checkbox" id="safeModeToggle"></div>
+        <p class="modal-text">En modo seguro las herramientas no modifican archivos, envían correos ni ejecutan comandos.</p>
+        <p class="modal-text"><b>Datos compartidos:</b> el mensaje y el contexto necesario pueden enviarse a OpenRouter/Supabase. Las herramientas externas pueden compartir sus propios datos con el proveedor correspondiente. Ainslup te pedirá permiso antes de acciones sensibles.</p>
+        <div class="modal-row"><span>Permisos por herramienta</span><span id="securityStatus">Cargando…</span></div>
+        <div class="modal-row"><span>Enviar correo</span><select class="model-select tool-permission" data-tool="send_email"><option value="ask">Preguntar</option><option value="allow">Permitir</option><option value="deny">Denegar</option></select></div>
+        <div class="modal-row"><span>Escribir archivos</span><select class="model-select tool-permission" data-tool="write_file"><option value="ask">Preguntar</option><option value="allow">Permitir</option><option value="deny">Denegar</option></select></div>
+        <div class="modal-row"><span>Ejecutar comandos</span><select class="model-select tool-permission" data-tool="run_command"><option value="deny">Denegar</option><option value="ask">Preguntar</option><option value="allow">Permitir</option></select></div>
+      </div>
+
       <div class="modal-section" id="licenseSection" style="display:none;">
         <span class="modal-label">Activar plan (serial)</span>
         <div class="modal-row">

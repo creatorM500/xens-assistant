@@ -1,4 +1,5 @@
 import asyncio, copy, json, logging
+import uuid
 from pathlib import Path
 
 import aiohttp
@@ -18,6 +19,7 @@ from ..memory.profile import profile
 from ..memory.summarizer import summarize_conversation, extract_user_info
 from ..personality import build_system
 from ..tools.registry import registry
+from ..core import security
 
 logger = logging.getLogger("xens.web")
 HERE = Path(__file__).parent
@@ -87,6 +89,20 @@ class WebServer:
         # los envíos de las demás conexiones (un send atascado en un socket
         # zombie no debe tumbar el servidor entero).
         send_lock = asyncio.Lock()
+        pending_confirmations = {}
+
+        async def ask_confirmation(tool, args, risk):
+            request_id = uuid.uuid4().hex
+            future = asyncio.get_running_loop().create_future()
+            pending_confirmations[request_id] = future
+            await send({"type": "confirm_request", "confirmId": request_id,
+                        "tool": tool, "args": args, "risk": risk})
+            try:
+                return await asyncio.wait_for(future, timeout=120)
+            except asyncio.TimeoutError:
+                return False
+            finally:
+                pending_confirmations.pop(request_id, None)
 
         async def send(data: dict):
             # Timeout de guardia: si el socket está muerto, raise en vez de
@@ -152,6 +168,21 @@ class WebServer:
                         continue
 
                     try:
+                        if data.get("type") == "confirm_response":
+                            future = pending_confirmations.get(str(data.get("confirmId") or ""))
+                            if future and not future.done():
+                                future.set_result(bool(data.get("approve")))
+                            continue
+
+                        if data.get("type") == "get_security":
+                            await send({"type": "security", **security.settings()})
+                            continue
+
+                        if data.get("type") == "set_security":
+                            cfg = security.set_settings(data.get("safe_mode"), data.get("permissions"))
+                            await send({"type": "security", **cfg})
+                            continue
+
                         if data.get("type") == "auth":
                             token = data.get("token")
                             claims = await firebase_auth.verify(token) if token else None  # supabase JWT HS256
@@ -253,6 +284,7 @@ class WebServer:
                             xens_model = data.get("xens_model") or data.get("model") or "auto"
                             asyncio.ensure_future(self._run_response(
                                 ws, send, session, acct_state, text, request_id, xens_model,
+                                confirm_handler=ask_confirmation,
                             ))
                             continue
 
@@ -360,7 +392,7 @@ class WebServer:
 
         return ws
 
-    async def _run_response(self, ws, send, session, acct_state, text, request_id, xens_model="auto", origin_conv_id=None):
+    async def _run_response(self, ws, send, session, acct_state, text, request_id, xens_model="auto", origin_conv_id=None, confirm_handler=None):
         """Task de respuesta para UN mensaje: snapshot aislado del contexto,
         ejecución concurrente, y escritura ordenada en la sesión."""
         try:
@@ -374,15 +406,22 @@ class WebServer:
                 messages = copy.deepcopy(self._build_messages(session, uid))
 
             full = ""
-            async for chunk in run_tool_loop(messages, tier=tier, uid=uid, xens_model=xens_model, account_token=account_token):
+            token = security.set_confirmation_handler(confirm_handler)
+            await send({"type": "data_notice", "provider": "OpenRouter/Supabase",
+                        "shared": "Tu mensaje y el contexto necesario para responder; las herramientas pueden enviar datos al proveedor que corresponda."})
+            try:
+              stream = run_tool_loop(messages, tier=tier, uid=uid, xens_model=xens_model, account_token=account_token)
+              async for chunk in stream:
                 if isinstance(chunk, dict):
                     chunk["requestId"] = request_id or None
                     await send(chunk)
                     if chunk["type"] == "content":
                         full += chunk.get("content") or ""
-                elif isinstance(chunk, str):
-                    full += chunk
-                    await send({"type": "content", "requestId": request_id or None, "content": chunk})
+                    elif isinstance(chunk, str):
+                        full += chunk
+                        await send({"type": "content", "requestId": request_id or None, "content": chunk})
+            finally:
+                security.reset_confirmation_handler(token)
 
             if full and self._session_epoch == epoch:
                 async with self._session_lock:

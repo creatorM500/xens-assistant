@@ -6,7 +6,7 @@ _TIMEOUT = 60
 
 _UTF8_ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
-@register(name="run_command", description="Run a shell command. Use this for system commands, git, npm, etc. Use execute_code for running code snippets.", tier="free")
+@register(name="run_command", description="Run a shell command. Use this for system commands, git, npm, etc. Use execute_code for running code snippets.", tier="free", risk="dangerous")
 def run_command(command: str, timeout: int = 30, workdir: str = "", shell: bool = True) -> str:
     if not command or not command.strip():
         return json.dumps({"error": "No command provided", "success": False})

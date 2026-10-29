@@ -211,7 +211,7 @@ def search_email(query: str, folder: str = "INBOX") -> str:
         except Exception:
             pass
 
-@register(name="send_email", description="Send an email via the configured SMTP account.", tier="free")
+@register(name="send_email", description="Send an email via the configured SMTP account.", tier="free", risk="confirm")
 def send_email(to: str, subject: str, body: str) -> str:
     info = _get_credentials()
     if not info:

@@ -1285,9 +1285,19 @@
     // Licencia: visible para enterprise, o para quien aún no tiene plan
     // (así Samuel ve dónde pegar su serial sin flags raros).
     sendToServer({type:"get_license"});
+    sendToServer({type:"get_security"});
     el.settingsOverlay.classList.add("open");
     if (window.XensAnalytics) window.XensAnalytics.track("settings_opened");
   }
+
+  const safeToggle = document.getElementById("safeModeToggle");
+  if (safeToggle) safeToggle.addEventListener("change", () =>
+    sendToServer({type:"set_security", safe_mode: safeToggle.checked}));
+  document.querySelectorAll(".tool-permission").forEach((select) => select.addEventListener("change", () => {
+    const permissions = {};
+    document.querySelectorAll(".tool-permission").forEach((s) => permissions[s.dataset.tool] = s.value);
+    sendToServer({type:"set_security", permissions});
+  }));
 
   function closeSettings() {
     el.settingsOverlay.classList.remove("open");
@@ -1589,6 +1599,27 @@
   function handleServerMessage(data) {
     const reqId = data.requestId || null;
     switch (data.type) {
+      case "security": {
+        const toggle = document.getElementById("safeModeToggle");
+        if (toggle) toggle.checked = !!data.safe_mode;
+        const status = document.getElementById("securityStatus");
+        if (status) status.textContent = data.safe_mode ? "Modo seguro activo" : "Protección activa";
+        document.querySelectorAll(".tool-permission").forEach((s) => {
+          if (data.permissions && data.permissions[s.dataset.tool]) s.value = data.permissions[s.dataset.tool];
+        });
+        break;
+      }
+      case "confirm_request": {
+        const args = data.args ? JSON.stringify(data.args, null, 2) : "";
+        const ok = window.confirm(`Ainslup solicita permiso para: ${data.tool}\n\n${args}\n\n¿Aprobar esta operación?`);
+        if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+          state.socket.send(JSON.stringify({type: "confirm_response", confirmId: data.confirmId, approve: ok}));
+        }
+        break;
+      }
+      case "data_notice":
+        showToast && showToast(`Privacidad: ${data.shared || "Se comparten datos con proveedores externos."}`);
+        break;
       case "content":
         appendAssistantChunk(data.content ?? "", reqId);
         break;
