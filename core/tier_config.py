@@ -14,6 +14,7 @@ XENS_ALIASES = {
     "Core": {"provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash", "label": "Core — equilibrado", "use": "resumen/instrucciones"},
     "Think": {"provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash", "label": "Think — razonamiento económico", "use": "lógica/mates"},
     "Code": {"provider": "openrouter", "model": "qwen/qwen-2.5-coder-32b-instruct", "label": "Code — código", "use": "refactor/debug"},
+    "Research": {"provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash", "label": "Research — investigación", "use": "investigación/síntesis"},
     "Vision": {"provider": "openrouter", "model": "google/gemini-2.0-flash-001", "label": "Vision — imagen", "use": "pantalla/OCR"},
     "Ultra": {"provider": "openrouter", "model": "minimax/minimax-m3.1-flash", "label": "Ultra — agente de alta calidad", "use": "análisis profundo"},
 }
@@ -26,6 +27,7 @@ DEFAULT_CONFIG = {
             {"provider": "pollinations", "model": "nvidia/nemotron-3-ultra"},
             {"alias": "Flash", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash"},
             {"alias": "Core", "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash"},
+            {"alias": "Core", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash", "alt": True},
         ],
         "credits": 5000,
     },
@@ -33,6 +35,7 @@ DEFAULT_CONFIG = {
         "models": [
             {"alias": "Flash", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash"},
             {"alias": "Core", "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash"},
+            {"alias": "Core", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash", "alt": True},
             {"alias": "Vision", "provider": "openrouter", "model": "google/gemini-2.0-flash-001"},
         ],
         "credits": 15000,
@@ -42,7 +45,10 @@ DEFAULT_CONFIG = {
             {"alias": "Flash", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash"},
             {"alias": "Core", "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash"},
             {"alias": "Think", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash"},
+            {"alias": "Think", "provider": "openrouter", "model": "deepseek/deepseek-r1", "alt": True},
             {"alias": "Code", "provider": "openrouter", "model": "qwen/qwen-2.5-coder-32b-instruct"},
+            {"alias": "Research", "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash"},
+            {"alias": "Research", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash", "alt": True},
             {"alias": "Vision", "provider": "openrouter", "model": "google/gemini-2.0-flash-001"},
         ],
         "credits": 35000,
@@ -53,6 +59,7 @@ DEFAULT_CONFIG = {
             {"alias": "Core", "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash"},
             {"alias": "Think", "provider": "openrouter", "model": "xiaomi/mimo-v2.6-flash"},
             {"alias": "Code", "provider": "openrouter", "model": "qwen/qwen-2.5-coder-32b-instruct"},
+            {"alias": "Research", "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash"},
             {"alias": "Vision", "provider": "openrouter", "model": "google/gemini-2.0-flash-001"},
             {"alias": "Ultra", "provider": "openrouter", "model": "minimax/minimax-m3.1-flash"},
             {"alias": "Ultra", "provider": "openrouter", "model": "deepseek/deepseek-v4-pro", "alt": True},
@@ -81,7 +88,7 @@ class TierConfig:
                 # Migración: configs viejas (sin lite o con ids Mistral directos)
                 # sombrearían los defaults nuevos. Se reemplazan una vez.
                 models_blob = json.dumps(data)
-                if "lite" not in data or "mistral-small-2506" in models_blob or "mistralai/mistral-nemo" in models_blob or "pixtral-large" in models_blob or "deepseek-v4" not in models_blob:
+                if "lite" not in data or "Research" not in models_blob or "mistral-small-2506" in models_blob or "mistralai/mistral-nemo" in models_blob or "pixtral-large" in models_blob or "deepseek-v4" not in models_blob:
                     raise ValueError("stale tier config, migrating to defaults")
                 self._data = data
                 self._source = str(path)

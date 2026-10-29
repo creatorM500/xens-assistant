@@ -12,6 +12,7 @@ MODEL_ROLES = {
     "mimo-v2.6-flash": "cheap",
     "minimax/minimax-m3.1-flash": "specialized",
     "minimax-m3.1-flash": "specialized",
+    "deepseek/deepseek-v4.1-flash": "cheap",
     "mistral-nemo": "cheap",
     "mistralai/mistral-nemo": "cheap",
     "qwen-2.5-coder-32b-instruct": "specialized",

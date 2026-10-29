@@ -34,6 +34,7 @@ const XENS_ALIAS_MAP: Record<string, {provider:string, model:string}> = {
   Core: {provider:"openrouter", model:"deepseek/deepseek-v4.1-flash"},
   Think: {provider:"openrouter", model:"xiaomi/mimo-v2.6-flash"},
   Code: {provider:"openrouter", model:"qwen/qwen-2.5-coder-32b-instruct"},
+  Research: {provider:"openrouter", model:"deepseek/deepseek-v4.1-flash"},
   Vision: {provider:"openrouter", model:"google/gemini-2.0-flash-001"},
   Ultra: {provider:"openrouter", model:"minimax/minimax-m3.1-flash"},
 };
