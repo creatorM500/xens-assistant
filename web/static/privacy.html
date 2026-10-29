@@ -26,52 +26,64 @@
   <section class="legal-page">
     <div class="container">
       <h1>Política de Privacidad</h1>
-      <p class="legal-updated">Última actualización: 2026-08-15</p>
+      <p class="legal-updated">Última actualización: 2026-10-28</p>
 
       <p>Esta Política de Privacidad explica cómo <strong>SvY Teck</strong> recopila, usa y protege tu información al usar AINSLUP.</p>
 
       <h2>1. Información que recopilamos</h2>
       <ul>
         <li><strong>Datos de cuenta:</strong> nombre, correo electrónico y, si inicias sesión con Google o GitHub, la información básica de perfil que esos proveedores comparten con nosotros.</li>
-        <li><strong>Contenido de las conversaciones:</strong> los mensajes que envías al asistente y las respuestas generadas, para poder mostrarte tu historial.</li>
+        <li><strong>Conversaciones:</strong> la aplicación de escritorio guarda el historial localmente en <code>~/.ainslup/sessions</code> para poder mostrarlo. Actualmente no sincronizamos automáticamente el contenido completo de las conversaciones con Supabase. Aun así, el texto necesario para responder sí se envía al proveedor LLM elegido.</li>
         <li><strong>Datos de uso:</strong> número de mensajes enviados, plan activo, y eventos de interacción con la interfaz, usados para analítica del producto.</li>
-        <li><strong>Datos técnicos:</strong> dirección IP, tipo de navegador y dispositivo, recopilados de forma automática por motivos de seguridad y diagnóstico.</li>
+        <li><strong>Datos técnicos:</strong> dirección IP, tipo de navegador/dispositivo y registros de errores, recopilados por la infraestructura y el diagnóstico.</li>
       </ul>
 
       <h2>2. Cómo usamos tu información</h2>
       <ul>
-        <li>Para operar y mantener tu cuenta y tu historial de conversaciones.</li>
+        <li>Para operar tu cuenta y mostrar el historial local de tu aplicación.</li>
         <li>Para procesar tus mensajes y generar respuestas del asistente.</li>
         <li>Para aplicar los límites del plan gratuito y gestionar suscripciones de pago.</li>
         <li>Para mejorar el producto mediante analítica agregada de uso.</li>
         <li>Para comunicarnos contigo sobre cambios en el servicio, facturación o soporte.</li>
       </ul>
 
-      <h2>3. Con quién compartimos información</h2>
-      <p>No vendemos tu información personal. Podemos compartir datos con proveedores que nos ayudan a operar AINSLUP, bajo obligaciones de confidencialidad, incluyendo:</p>
+      <h2>3. Qué datos recibe cada proveedor</h2>
+      <p>No vendemos tu información personal. Para generar una respuesta, AINSLUP puede enviar el mensaje, parte del historial necesario, instrucciones del asistente y resultados de herramientas al proveedor seleccionado. No todos los proveedores reciben todos los datos:</p>
       <ul>
-        <li>Proveedores de autenticación (ej. Google, GitHub) cuando eliges iniciar sesión con ellos.</li>
-        <li>Proveedores de infraestructura y base de datos para almacenar tu cuenta e historial.</li>
-        <li>Herramientas de analítica para entender el uso agregado del producto.</li>
-        <li>Autoridades, cuando la ley lo exija.</li>
+        <li><strong>OpenRouter:</strong> recibe la solicitud LLM y puede enrutarla al modelo configurado, por ejemplo DeepSeek, MiMo, MiniMax, Google o Anthropic. OpenRouter y el proveedor final procesan el contenido según sus propias políticas y retención.</li>
+        <li><strong>DeepSeek, Xiaomi/MiMo y MiniMax:</strong> reciben el texto que AINSLUP les envía cuando su modelo es seleccionado. No reciben tus claves locales.</li>
+        <li><strong>Google o Anthropic:</strong> reciben solicitudes únicamente cuando se selecciona un modelo suyo o actúan como fallback. El texto puede incluir contexto de la conversación y resultados de herramientas necesarios para la tarea.</li>
+        <li><strong>Mistral:</strong> puede recibir solicitudes solo cuando se usa una ruta Mistral configurada o un respaldo de emergencia; no es el destino normal de todos los mensajes.</li>
+        <li><strong>Supabase:</strong> recibe datos de cuenta, autenticación, licencia, créditos y operaciones necesarias del servicio. El contenido completo de la conversación no se sincroniza automáticamente en la versión actual.</li>
+        <li><strong>PayPal y analítica:</strong> reciben únicamente los datos necesarios para pagos, seguridad y métricas de uso. No enviamos el texto completo del chat a la analítica de producto.</li>
       </ul>
 
-      <h2>4. Conservación de datos</h2>
-      <p>Conservamos tu información mientras tu cuenta esté activa. Puedes solicitar la eliminación de tu cuenta y de tu historial de conversaciones en cualquier momento.</p>
+      <h2>4. ¿Se usan las conversaciones para entrenar modelos?</h2>
+      <p>AINSLUP no utiliza tus conversaciones para entrenar sus propios modelos. Sin embargo, AINSLUP no controla las políticas de retención o entrenamiento de cada proveedor externo. La configuración puede cambiar por proveedor, modelo, ruta o contrato. No introduzcas secretos, contraseñas, claves privadas o información regulada en una solicitud salvo que aceptes ese riesgo y hayas comprobado la política del proveedor.</p>
 
-      <h2>5. Tus derechos</h2>
+      <h2>5. Correo, escritorio y herramientas</h2>
+      <p>Las herramientas solo actúan cuando están disponibles para tu plan y, para acciones sensibles, después de tu confirmación. Las credenciales de correo configuradas mediante la aplicación se guardan en el Administrador de credenciales de Windows; AINSLUP no debe mostrar la contraseña al modelo. Si pides leer correo, el contenido recuperado puede incorporarse a la solicitud LLM y llegar al proveedor seleccionado. Las capturas de pantalla, archivos, texto del portapapeles y resultados de comandos pueden tener el mismo tratamiento si los compartes explícita o indirectamente con una tarea.</p>
+      <p>El modo seguro simula acciones sin enviar correos, escribir archivos ni ejecutar comandos. Puedes bloquear herramientas individualmente y consultar el registro local de actividad.</p>
+
+      <h2>6. Dónde se almacenan y cuánto tiempo</h2>
+      <p>El historial local se almacena en tu equipo, dentro de <code>~/.ainslup/sessions</code>. La cuenta, autenticación, créditos, licencias y datos operativos se almacenan en Supabase. Los proveedores LLM pueden conservar solicitudes según sus propias políticas; AINSLUP no puede borrar directamente sus registros.</p>
+
+      <h2>7. Cómo eliminar tus datos completamente</h2>
+      <p>Para borrar el historial local, usa “Limpiar” en la aplicación y elimina los archivos de <code>%USERPROFILE%\.ainslup\sessions</code> si quieres una eliminación manual completa. Para eliminar cuenta, créditos, licencia y datos asociados de Supabase, solicita la eliminación a <strong>svyteck@gmail.com</strong> indicando el correo de la cuenta. También debes solicitar la eliminación directamente a los proveedores LLM si necesitas retirar una solicitud que ya fue procesada por ellos; AINSLUP no puede garantizar el borrado de sus copias o logs.</p>
+
+      <h2>8. Tus derechos</h2>
       <p>Dependiendo de tu ubicación, puedes tener derecho a acceder, corregir, exportar o eliminar tu información personal. Para ejercer estos derechos, contáctanos a <strong>svyteck@gmail.com</strong>.</p>
 
-      <h2>6. Seguridad</h2>
-      <p>Aplicamos medidas técnicas y organizativas razonables para proteger tu información contra acceso no autorizado, pérdida o alteración. Ningún sistema es 100% seguro, por lo que no podemos garantizar seguridad absoluta.</p>
+      <h2>9. Claves, tokens y seguridad</h2>
+      <p>Las comunicaciones con los servicios se realizan mediante HTTPS. Las claves de OpenRouter, Pollinations, Mistral y PayPal de producción se mantienen en secretos del backend y no deben exponerse al navegador. Los tokens de sesión se usan para autenticar las solicitudes. La configuración local puede contener credenciales necesarias para el modo personal; protege tu cuenta de Windows y no compartas la carpeta <code>~/.ainslup</code>. Aplicamos medidas razonables, pero ningún sistema es 100% seguro.</p>
 
-      <h2>7. Menores de edad</h2>
+      <h2>10. Menores de edad</h2>
       <p>AINSLUP no está dirigido a menores de 13 años. Si crees que un menor nos ha proporcionado información personal, contáctanos para eliminarla.</p>
 
-      <h2>8. Cambios a esta política</h2>
+      <h2>11. Cambios a esta política</h2>
       <p>Podemos actualizar esta Política de Privacidad ocasionalmente. Los cambios relevantes serán notificados a través de la plataforma.</p>
 
-      <h2>9. Contacto</h2>
+      <h2>12. Contacto</h2>
       <p>Para preguntas sobre privacidad, escríbenos a <strong>svyteck@gmail.com</strong>.</p>
     </div>
   </section>
