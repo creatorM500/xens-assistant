@@ -1,0 +1,4 @@
+"use client";
+import { useEffect,useState } from "react";
+import { supabase } from "../../lib/supabase";
+export default function AppPage(){const [email,setEmail]=useState("");useEffect(()=>{supabase?.auth.getUser().then(({data})=>{if(data.user)setEmail(data.user.email||"");else window.location.href="/login"})},[]);async function logout(){await supabase?.auth.signOut();window.location.href="/"}return <main className="dashboard"><nav className="nav"><b>AINSLUP</b><button className="button ghost" onClick={logout}>Cerrar sesión</button></nav><section className="dashboard-card"><span className="eyebrow">Cuenta conectada</span><h1>Tu espacio AINSLUP</h1><p>Sesión iniciada como <b>{email||"…"}</b>.</p><p>El chat, créditos, historial y Desktop compartirán esta misma cuenta.</p><button className="button" disabled>Chat web — siguiente fase</button></section></main>}
