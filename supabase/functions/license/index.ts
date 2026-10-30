@@ -131,11 +131,27 @@ async function handleCreditsSpend(body:any): Promise<Response>{
   }catch(e){ return json(500,{error:String(e)}); }
 }
 function secondsUntilReset(): number{ const now=new Date(); const nxt=new Date(now.getFullYear(), now.getMonth()+1, 1); return Math.floor((nxt.getTime()-now.getTime())/1000); }
+async function webContext(query:string):Promise<string>{
+  try{
+    const r=await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,{headers:{"user-agent":"AINSLUP-Web/1.0"}}); if(!r.ok) return "";
+    const html=await r.text(); const out:string[]=[]; const re=/<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g; let m:RegExpExecArray|null;
+    const clean=(v:string)=>v.replace(/<[^>]+>/g," ").replace(/&amp;/g,"&").replace(/&#x27;/g,"'").replace(/\s+/g," ").trim();
+    while((m=re.exec(html))&&out.length<5) out.push(`- ${clean(m[2])}: ${clean(m[3])} (${m[1]})`);
+    return out.join("\n");
+  }catch{return "";}
+}
 
 async function handleChat(req: Request, auth:string, body:any): Promise<Response>{
   const caller=await resolveAuth(auth); if(caller instanceof Response) return caller;
   const tier=caller.tier;
   const messages=body?.messages; if(!Array.isArray(messages)||messages.length===0) return json(400,{error:"messages required"});
+  // La Web no expone herramientas locales, pero sí puede consultar información pública.
+  // Añadimos resultados de búsqueda como contexto para preguntas actuales.
+  const latest=String(messages[messages.length-1]?.content??"");
+  if(/\b(clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|actual|ahora|hoy|últim[oa]|reciente|202[4-9]|203\d)\b/i.test(latest)){
+    const web=await webContext(latest);
+    if(web) messages.splice(0,0,{role:"system",content:`Contexto web actualizado (úsalo con cautela y cita las fuentes):\n${web}`});
+  }
   let lic:any=null;
   const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
   if(caller.kind==="license"){
