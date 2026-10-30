@@ -1,0 +1,3 @@
+module.exports=[[64537,a=>{var b=a.i(95823);a.s(["default",0,function({children:a}){return(0,b.jsx)("html",{lang:"es",children:(0,b.jsx)("body",{children:a})})},"metadata",0,{title:"AINSLUP",description:"Tu asistente de IA para pensar y trabajar."}])},73083,(a,b,c)=>{b.exports=a.r(18622)},95823,(a,b,c)=>{b.exports=a.r(73083).vendored["react-rsc"].ReactJsxRuntime}],18622,(a,b,c)=>{b.exports=a.x("next/dist/compiled/next-server/app-page-turbo.runtime.prod.js",()=>require("next/dist/compiled/next-server/app-page-turbo.runtime.prod.js"))},91712,function(a){a.n(a.i(64537))}];
+
+//# sourceMappingURL=%5Broot-of-the-server%5D__0qctip_eno0r_._.js.map

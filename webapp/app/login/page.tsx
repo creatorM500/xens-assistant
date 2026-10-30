@@ -1,0 +1,1 @@
+export default function LoginPage(){return <main className="auth"><a href="/">← AINSLUP</a><h1>Iniciar sesión</h1><p>La autenticación web se conectará a Supabase en la siguiente fase.</p><a className="button" href="/">Volver a la página principal</a></main>}
