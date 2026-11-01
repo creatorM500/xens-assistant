@@ -82,7 +82,7 @@ async function handleActivate(req: Request, body:any): Promise<Response>{
   const token=await makeToken({sub:serial,tier,exp:exp||Math.floor(Date.now()/1000)+365*86400,iss:"xens",iat:Math.floor(Date.now()/1000)});
   return json(200,{token,tier,expires_at:exp||undefined});
 }
-async function handleMe(auth:string): Promise<Response>{ const payload=await requireAuth(auth); if(payload instanceof Response) return payload; return json(200,{tier:String(payload.tier??"free").toLowerCase(),expires_at:Number(payload.exp??0),online:true}); }
+async function handleMe(auth:string): Promise<Response>{ const payload=await requireAuth(auth); if(payload instanceof Response) return payload; const tier=String(payload.tier??"free").toLowerCase(); const credits=await accountCredits(String(payload.uid),tier); return json(200,{tier,expires_at:Number(payload.exp??0),online:true,credits_spent:credits.limit-credits.remaining,credits_limit:credits.limit,credits_remaining:credits.remaining}); }
 async function handleProvisionFree(req: Request, body:any): Promise<Response>{
   // Cero-config para el consumidor: crea (o reutiliza) la licencia Free
   // lifetime de esta máquina. Sin serial, sin API keys.
