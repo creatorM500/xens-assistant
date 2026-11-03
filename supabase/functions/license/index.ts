@@ -173,7 +173,49 @@ async function requestToolModel(payload:any):Promise<Response|null>{
     return await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{authorization:`Bearer ${OPENROUTER_KEY}`,"content-type":"application/json"},body:JSON.stringify(payload)});
   }catch{return null;}
 }
-async function handleWebToolChat(messages:any[], tier:string, requestedModel:string, caller:any):Promise<Response|null>{ if(!OPENROUTER_KEY) return null; const conversation=messages.map(item=>({...item})); const events:any[]=[]; const images:string[]=[]; let model=requestedModel||DEFAULT_MODELS[tier]||DEFAULT_MODELS.free; for(let round=0;round<4;round++){ const r=await requestToolModel({model,messages:conversation,tools:WEB_TOOL_SCHEMAS,tool_choice:"auto",temperature:.3,max_tokens:2000}); if(!r) return null; const data=await r.json().catch(()=>({})); if(!r.ok) return null; const msg=data?.choices?.[0]?.message??{}; const calls=Array.isArray(msg.tool_calls)?msg.tool_calls:[]; if(!calls.length) { if(caller?.kind==="account"){ const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`; await rpc("spend_user_credits",{p_uid:String(caller.uid),p_period:period,p_amount:Math.max(1,events.length+1)}); } return json(200,{content:msg.content??"",tool_events:events,images,model:data?.model??model,tier}); } conversation.push({role:"assistant",content:msg.content??null,tool_calls:calls}); for(const call of calls){ let args:any={}; try { args=JSON.parse(call.function?.arguments||"{}"); } catch {} events.push({name:call.function?.name||"tool",status:"completed"}); const result=await executeWebTool(String(call.function?.name||""),args); if(result.image) images.push(result.image); conversation.push({role:"tool",tool_call_id:call.id,content:result.text}); } } return null; }
+const WEB_TOOL_INSTRUCTIONS = `Herramientas cloud disponibles en AINSLUP Web:
+- web_search: consulta información pública actualizada en Internet.
+- calculator: calcula expresiones matemáticas seguras.
+- get_current_time: obtiene fecha y hora por zona horaria.
+- generate_image: genera imágenes solo cuando el usuario lo solicita.
+Debes usar estas herramientas cuando correspondan. No digas que careces de herramientas si una de ellas puede resolver la petición. AINSLUP Web nunca tiene acceso a archivos locales, ventanas, comandos ni al ordenador del usuario.`;
+async function handleWebToolChat(messages:any[], tier:string, requestedModel:string, caller:any, forceSearch:boolean=false):Promise<Response|null>{
+  if(!OPENROUTER_KEY) return null;
+  const conversation=[{role:"system",content:WEB_TOOL_INSTRUCTIONS},...messages.map(item=>({...item}))];
+  const events:any[]=[]; const images:string[]=[];
+  const preferred=requestedModel||DEFAULT_MODELS[tier]||DEFAULT_MODELS.free;
+  const candidates=[preferred,"google/gemini-2.0-flash-001","qwen/qwen-2.5-coder-32b-instruct","deepseek/deepseek-v4.1-flash"].filter((model,index,list)=>model&&list.indexOf(model)===index);
+  let model=preferred;
+  for(let round=0;round<4;round++){
+    let response:Response|null=null;
+    for(const candidate of candidates){
+      const attempt=await requestToolModel({model:candidate,messages:conversation,tools:WEB_TOOL_SCHEMAS,tool_choice:forceSearch?{type:"function",function:{name:"web_search"}}:"auto",temperature:.3,max_tokens:2000});
+      if(attempt && attempt.ok){ response=attempt; model=candidate; break; }
+    }
+    if(!response) return null;
+    const data=await response.json().catch(()=>({}));
+    const msg=data?.choices?.[0]?.message??{};
+    const calls=Array.isArray(msg.tool_calls)?msg.tool_calls:[];
+    if(!calls.length){
+      if(caller?.kind==="account"){
+        const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+        await rpc("spend_user_credits",{p_uid:String(caller.uid),p_period:period,p_amount:Math.max(1,events.length+1)});
+      }
+      return json(200,{content:msg.content??"",tool_events:events,images,model:data?.model??model,tier,tools_available:true});
+    }
+    conversation.push({role:"assistant",content:msg.content??null,tool_calls:calls});
+    for(const call of calls){
+      let args:any={}; try{ args=JSON.parse(call.function?.arguments||"{}"); }catch{}
+      const name=String(call.function?.name||""); events.push({name:name||"tool",status:"running"});
+      let result:{text:string;image?:string};
+      try{ result=await executeWebTool(name,args); }catch{ result={text:"La herramienta no pudo completarse."}; }
+      events[events.length-1].status="completed";
+      if(result.image) images.push(result.image);
+      conversation.push({role:"tool",tool_call_id:call.id,content:result.text});
+    }
+  }
+  return null;
+}
 
 async function handleChat(req: Request, auth:string, body:any): Promise<Response>{
   const caller=await resolveAuth(auth); if(caller instanceof Response) return caller;
@@ -183,7 +225,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   // La Web no expone herramientas locales, pero sí puede consultar información pública.
   // Añadimos resultados de búsqueda como contexto para preguntas actuales.
   const latest=String(messages[messages.length-1]?.content??"");
-  if(Boolean(body?.web_search) || /\b(clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|actual|ahora|hoy|últim[oa]|reciente|202[4-9]|203\d)\b/i.test(latest)){
+  if(Boolean(body?.web_search) || /\b(busca|buscar|b[uú]squeda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|actual|ahora|hoy|últim[oa]|reciente|202[4-9]|203\d)\b/i.test(latest)){
     const web=await webContext(latest);
     if(web) messages.splice(0,0,{role:"system",content:`Contexto web actualizado (úsalo con cautela y cita las fuentes):\n${web}`});
   }
@@ -205,7 +247,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const found = Object.keys(XENS_ALIAS_MAP).find(k=>k.toLowerCase()===alias.toLowerCase());
     if(found) body.model = XENS_ALIAS_MAP[found].model;
   }
-  if(body?.tool_mode===true){ const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller); if(toolResponse) return toolResponse; }
+  if(body?.tool_mode===true){ messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS}); const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,Boolean(body?.web_search)); if(toolResponse) return toolResponse; }
   // stream flag — always prefer stream for word-by-word (reduces perceived latency)
   if(body?.stream || body?.xens_stream !== false) {
     // if caller wants streaming but didn't set stream, we upgrade to stream when not needing tools? keep tools streaming
