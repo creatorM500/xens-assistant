@@ -32,6 +32,21 @@ select:focus-visible {
   overflow-y: hidden;
 }
 
+.history-menu-floating {
+  position: fixed !important;
+  right: auto !important;
+  z-index: 1000 !important;
+  min-width: 180px !important;
+  max-width: min(220px, calc(100vw - 16px)) !important;
+  max-height: calc(100vh - 16px) !important;
+  overflow-y: auto !important;
+  transform: none !important;
+}
+
+.history-menu-floating button {
+  min-height: 34px !important;
+}
+
 @media (max-width: 760px) {
   html,
   body {
