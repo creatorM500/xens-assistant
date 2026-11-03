@@ -43,6 +43,20 @@ select:focus-visible {
   transform: none !important;
 }
 
+.history-menu-dismiss {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 999 !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
 .history-menu-floating button {
   min-height: 34px !important;
 }
