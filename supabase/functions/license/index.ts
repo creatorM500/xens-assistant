@@ -168,7 +168,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   // La Web no expone herramientas locales, pero sí puede consultar información pública.
   // Añadimos resultados de búsqueda como contexto para preguntas actuales.
   const latest=String(messages[messages.length-1]?.content??"");
-  if(/\b(clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|actual|ahora|hoy|últim[oa]|reciente|202[4-9]|203\d)\b/i.test(latest)){
+  if(Boolean(body?.web_search) || /\b(clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|actual|ahora|hoy|últim[oa]|reciente|202[4-9]|203\d)\b/i.test(latest)){
     const web=await webContext(latest);
     if(web) messages.splice(0,0,{role:"system",content:`Contexto web actualizado (úsalo con cautela y cita las fuentes):\n${web}`});
   }
