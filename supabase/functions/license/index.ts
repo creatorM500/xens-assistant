@@ -233,9 +233,10 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   // Añadimos resultados de búsqueda como contexto para preguntas actuales.
   const latest=String(messages[messages.length-1]?.content??"");
   const wantsSearch=Boolean(body?.web_search) || /\b(busca|buscar|b[uú]squeda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|actual|ahora|hoy|últim[oa]|reciente|semana|202[4-9]|203\d)\b/i.test(latest);
+  let searchContext="";
   if(wantsSearch){
-    const web=await webContext(latest);
-    if(web) messages.splice(0,0,{role:"system",content:`Contexto web actualizado (úsalo con cautela y cita las fuentes):\n${web}`});
+    searchContext=await webContext(latest);
+    messages.splice(0,0,{role:"system",content:searchContext?`La herramienta web_search ya se ejecutó correctamente. Usa estos resultados y cita las fuentes; no digas que careces de motor de búsqueda:\n${searchContext}`:"La herramienta web_search está activa, pero no devolvió resultados para esta consulta. No digas que no existe un motor; explica que no hubo resultados verificables."});
   }
   let lic:any=null;
   const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
@@ -304,6 +305,12 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   }
   if(!r||r.status>=400) return json(502,{error:`Model error`,detail:lastErr});
   const msg=up?.choices?.[0]?.message??{};
+  const content=String(msg.content??"");
+  const searchDenial=/no (?:puedo|tengo|es posible)|no .*motor de b[uú]squeda|depende de .*cuenta|b[uú]squeda .*no est[aá] habilitada/i.test(content);
+  if(wantsSearch && searchDenial){
+    const safeContent=searchContext?`He realizado la búsqueda web. Estos son los resultados encontrados:\n\n${searchContext}`:"He ejecutado el motor de búsqueda web, pero no encontré resultados verificables para esa consulta.";
+    return json(200,{content:safeContent,tool_calls:[],tool_events:[{name:"web_search",status:"completed"}],tools_available:true,model:up?.model??model,tier});
+  }
   if(lic) await rpc("bump_usage",{p_license_id:lic.id,p_period:period,p_tokens_in:Number(up?.usage?.prompt_tokens??0),p_tokens_out:Number(up?.usage?.completion_tokens??0)});
   return json(200,{content:msg.content??"",tool_calls:msg.tool_calls??[],tool_events:wantsSearch?[{name:"web_search",status:"completed"}]:[],tools_available:true,model:up?.model??model,usage:up?.usage??null,tier});
 }
