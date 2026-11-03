@@ -1,1 +1,5 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Privacidad", description: "Información sobre privacidad, datos y proveedores de AINSLUP." };
+
 export default function PrivacyPage(){return <main className="legal"><a href="/">← AINSLUP</a><h1>Privacidad</h1><p>AINSLUP procesa únicamente los datos necesarios para responder y te informa qué proveedores intervienen. El historial y las opciones de eliminación se integrarán con Supabase antes del lanzamiento web.</p></main>}
