@@ -248,7 +248,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const found = Object.keys(XENS_ALIAS_MAP).find(k=>k.toLowerCase()===alias.toLowerCase());
     if(found) body.model = XENS_ALIAS_MAP[found].model;
   }
-  if(body?.tool_mode===true){ messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS}); const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,wantsSearch); if(toolResponse) return toolResponse; }
+  if(body?.tool_mode===true && !wantsSearch){ messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS}); const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,false); if(toolResponse) return toolResponse; }
   // stream flag — always prefer stream for word-by-word (reduces perceived latency)
   if(body?.stream || body?.xens_stream !== false) {
     // if caller wants streaming but didn't set stream, we upgrade to stream when not needing tools? keep tools streaming
@@ -298,7 +298,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   if(!r||r.status>=400) return json(502,{error:`Model error`,detail:lastErr});
   const msg=up?.choices?.[0]?.message??{};
   if(lic) await rpc("bump_usage",{p_license_id:lic.id,p_period:period,p_tokens_in:Number(up?.usage?.prompt_tokens??0),p_tokens_out:Number(up?.usage?.completion_tokens??0)});
-  return json(200,{content:msg.content??"",tool_calls:msg.tool_calls??[],model:up?.model??model,usage:up?.usage??null,tier});
+  return json(200,{content:msg.content??"",tool_calls:msg.tool_calls??[],tool_events:wantsSearch?[{name:"web_search",status:"completed"}]:[],tools_available:true,model:up?.model??model,usage:up?.usage??null,tier});
 }
 async function tryStream(url:string,key:string,mdl:string,messages:any,tools:any):Promise<Response|null>{
   const payload:any={model:mdl,messages,temperature:0.3,stream:true}; if(Array.isArray(tools)&&tools.length>0) payload.tools=tools;
