@@ -342,7 +342,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   if(body?.tool_mode===true){
     messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS});
     const latestRequest=String(messages[messages.length-1]?.content??"");
-    const needsTool=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest) || Boolean(body?.web_search && /\S/.test(latestRequest));
+    const needsTool=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
     const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,Boolean(body?.web_search));
     if(toolResponse) return toolResponse;
     if(needsTool) return json(503,{error:"Las herramientas cloud no están disponibles en este momento."});
