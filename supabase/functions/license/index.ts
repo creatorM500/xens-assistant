@@ -174,8 +174,35 @@ const WEB_TOOL_SCHEMAS = [
   {type:"function",function:{name:"get_current_time",description:"Obtiene la fecha y hora actuales del servidor.",parameters:{type:"object",properties:{timezone:{type:"string",description:"Zona horaria IANA opcional"}},required:[]}}},
   {type:"function",function:{name:"generate_image",description:"Genera una imagen cuando el usuario la solicita explícitamente y ya se conocen sus requisitos principales.",parameters:{type:"object",properties:{prompt:{type:"string",description:"Descripción visual detallada"},aspect_ratio:{type:"string",enum:["1:1","16:9","9:16","4:3"]}},required:["prompt"]}}}
 ];
+function cleanToolTrace(content:string): string {
+  let out="";
+  for(let i=0;i<content.length;){
+    if(content[i]==="{"){
+      let quote=false, escaped=false, depth=0;
+      for(let j=i;j<content.length;j++){
+        const ch=content[j];
+        if(escaped){ escaped=false; continue; }
+        if(ch==="\\"){ escaped=true; continue; }
+        if(ch==='"'){ quote=!quote; continue; }
+        if(quote) continue;
+        if(ch==="{") depth++;
+        if(ch=== "}" && --depth===0){
+          try{
+            const parsed=JSON.parse(content.slice(i,j+1));
+            if(parsed && typeof parsed==="object" && ("tool" in parsed || "result" in parsed)){ i=j+1; while(/\s/.test(content[i]||"")) i++; break; }
+          }catch{}
+          break;
+        }
+      }
+      if(i>0 && content[i-1]==="}") continue;
+    }
+    out+=content[i++];
+  }
+  return out.replace(/\n{3,}/g,"\n\n").trim();
+}
+
 function calculateSafe(expression:string): string { const clean=expression.replace(/\^/g,"**").trim(); if(!clean || !/^[0-9+\-*/%().\s*]+$/.test(clean)) return "Solo se permiten números y operadores matemáticos básicos."; try { const result=Function(`"use strict"; return (${clean})`)(); if(typeof result!=="number" || !Number.isFinite(result)) return "El resultado no es finito."; return String(result); } catch { return "No se pudo evaluar la expresión."; } }
-async function executeWebTool(name:string,args:any):Promise<{text:string;image?:string}> { const searchQuery=String(args?.query??(Array.isArray(args?.queries)?args.queries[0]:"")); if(name==="web_search") return {text:(await webContext(searchQuery))||"No se encontraron resultados públicos."}; if(name==="calculator") return {text:calculateSafe(String(args?.expression??""))}; if(name==="get_current_time") { const zone=String(args?.timezone||"UTC"); try { return {text:new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:zone}).format(new Date())}; } catch { return {text:new Date().toISOString()}; } } if(name==="generate_image") { const account=Deno.env.get("CLOUDFLARE_ACCOUNT_ID")??""; const token=Deno.env.get("CLOUDFLARE_API_TOKEN")??""; if(!account||!token) return {text:"La generación de imágenes todavía no está configurada en AINSLUP Web."}; const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/ai/run/@cf/black-forest-labs/flux-1-schnell`,{method:"POST",headers:{authorization:`Bearer ${token}`,"content-type":"application/json"},body:JSON.stringify({prompt:String(args?.prompt??""),steps:4})}); const data=await r.json().catch(()=>({})); if(!r.ok||!data?.result?.image) return {text:"No se pudo generar la imagen en este momento."}; return {text:"Imagen generada correctamente. Preséntala al usuario y ofrece hacer cambios.",image:`data:image/jpeg;base64,${data.result.image}`}; } return {text:`Herramienta no disponible: ${name}`}; }
+async function executeWebTool(name:string,args:any):Promise<{text:string;image?:string}> { const searchQuery=String(args?.query??(Array.isArray(args?.queries)?args.queries[0]:"")); if(name==="web_search") return {text:(await webContext(searchQuery))||"No se encontraron resultados públicos."}; if(name==="calculator") return {text:calculateSafe(String(args?.expression??""))}; if(name==="get_current_time") { const zone=String(args?.timezone||"America/New_York"); try { return {text:new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:zone}).format(new Date())}; } catch { return {text:new Date().toISOString()}; } } if(name==="generate_image") { const account=Deno.env.get("CLOUDFLARE_ACCOUNT_ID")??""; const token=Deno.env.get("CLOUDFLARE_API_TOKEN")??""; if(!account||!token) return {text:"La generación de imágenes todavía no está configurada en AINSLUP Web."}; const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/ai/run/@cf/black-forest-labs/flux-1-schnell`,{method:"POST",headers:{authorization:`Bearer ${token}`,"content-type":"application/json"},body:JSON.stringify({prompt:String(args?.prompt??""),steps:4})}); const data=await r.json().catch(()=>({})); if(!r.ok||!data?.result?.image) return {text:"No se pudo generar la imagen en este momento."}; return {text:"Imagen generada correctamente. Preséntala al usuario y ofrece hacer cambios.",image:`data:image/jpeg;base64,${data.result.image}`}; } return {text:`Herramienta no disponible: ${name}`}; }
 async function requestToolModel(payload:any):Promise<Response|null>{
   const controller=new AbortController(); const timeout=setTimeout(()=>controller.abort(),20000);
   try{
@@ -223,7 +250,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
         const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
         await rpc("spend_user_credits",{p_uid:String(caller.uid),p_period:period,p_amount:Math.max(1,events.length+1)});
       }
-      return json(200,{content:msg.content??"",tool_events:events,images,model:data?.model??model,tier,tools_available:true});
+      return json(200,{content:cleanToolTrace(String(msg.content??"")),tool_events:events,images,model:data?.model??model,tier,tools_available:true});
     }
     conversation.push({role:"assistant",content:calls.length&&msg.content?.trim().startsWith("{")?null:(msg.content??null),tool_calls:calls});
     for(const call of calls){
@@ -232,8 +259,12 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
       let result:{text:string;image?:string};
       try{ result=await executeWebTool(name,args); }catch{ result={text:"La herramienta no pudo completarse."}; }
       events[events.length-1].status="completed";
-      if(result.image) images.push(result.image);
-      conversation.push({role:"tool",tool_call_id:call.id,content:result.text});
+       if(result.image) images.push(result.image);
+       lastToolText=result.text;
+       if(name==="get_current_time"){
+         return json(200,{content:`Hoy es ${result.text}.`,tool_events:events,images,model,tier,tools_available:true});
+       }
+       conversation.push({role:"tool",tool_call_id:call.id,content:result.text});
     }
   }
   return events.length ? json(200,{content:lastToolText||"La herramienta se ejecutó, pero no se pudo redactar una respuesta final.",tool_events:events,images,model,tier,tools_available:true}) : null;
