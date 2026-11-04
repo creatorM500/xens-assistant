@@ -174,6 +174,35 @@ const WEB_TOOL_SCHEMAS = [
   {type:"function",function:{name:"get_current_time",description:"Obtiene la fecha y hora actuales del servidor.",parameters:{type:"object",properties:{timezone:{type:"string",description:"Zona horaria IANA opcional"}},required:[]}}},
   {type:"function",function:{name:"generate_image",description:"Genera una imagen cuando el usuario la solicita explícitamente y ya se conocen sus requisitos principales.",parameters:{type:"object",properties:{prompt:{type:"string",description:"Descripción visual detallada"},aspect_ratio:{type:"string",enum:["1:1","16:9","9:16","4:3"]}},required:["prompt"]}}}
 ];
+function parseTextToolCall(content:string): {name:string; args:any}|null {
+  const source=content.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");
+  const candidates=[source];
+  const start=source.indexOf("{"); const end=source.lastIndexOf("}");
+  if(start>=0 && end>start && source.slice(start,end+1)!==source) candidates.push(source.slice(start,end+1));
+  for(const candidate of candidates){
+    try{
+      const parsed=JSON.parse(candidate);
+      const fn=typeof parsed?.function==="object" ? parsed.function : null;
+      const name=String(parsed?.tool??parsed?.name??fn?.name??(typeof parsed?.function==="string"?parsed.function:""));
+      const args=parsed?.arguments??parsed?.args??parsed?.parameters??fn?.arguments??{};
+      if(name && WEB_TOOL_SCHEMAS.some((entry:any)=>entry.function?.name===name)) return {name,args};
+    }catch{}
+  }
+  return null;
+}
+function isToolPayload(content:string): boolean {
+  try{
+    const raw=content.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");
+    const parsed=JSON.parse(raw);
+    if(!parsed || typeof parsed!=="object") return false;
+    return ["tool","name","function","arguments","args","parameters","query","tool_calls"].some(key=>Object.prototype.hasOwnProperty.call(parsed,key));
+  }catch{return false;}
+}
+function safeAssistantContent(content:string): string {
+  const cleaned=cleanToolTrace(content);
+  return isToolPayload(cleaned) ? "La herramienta recibió la solicitud, pero no pudo generar una respuesta legible." : cleaned;
+}
+
 function cleanToolTrace(content:string): string {
   let out="";
   for(let i=0;i<content.length;){
@@ -216,7 +245,21 @@ const WEB_TOOL_INSTRUCTIONS = `Herramientas cloud disponibles en AINSLUP Web:
 - generate_image: genera imágenes solo cuando el usuario lo solicita.
 Debes usar estas herramientas cuando correspondan. No digas que careces de herramientas si una de ellas puede resolver la petición. AINSLUP Web nunca tiene acceso a archivos locales, ventanas, comandos ni al ordenador del usuario.`;
 async function handleWebToolChat(messages:any[], tier:string, requestedModel:string, caller:any, forceSearch:boolean=false):Promise<Response|null>{
-  if(!OPENROUTER_KEY) return null;
+  const latestUser=String([...messages].reverse().find((item:any)=>item?.role==="user")?.content??"");
+  const dateIntent=/\b(qué\s+d[ií]a|que dia|fecha(?: actual)?|hora actual|what day|current date|current time)\b/i.test(latestUser);
+  const directEvents:any[]=[]; const directImages:string[]=[];
+  if(dateIntent){
+    const result=await executeWebTool("get_current_time",{});
+    directEvents.push({name:"get_current_time",status:"completed"});
+    return json(200,{content:`Hoy es ${result.text}.`,tool_events:directEvents,images:directImages,model:requestedModel||"cloud",tier,tools_available:true});
+  }
+  if(!OPENROUTER_KEY){
+    if(forceSearch){
+      const result=await executeWebTool("web_search",{query:latestUser});
+      return json(200,{content:result.text||"No se encontraron resultados públicos.",tool_events:[{name:"web_search",status:"completed"}],images:directImages,model:requestedModel||"cloud",tier,tools_available:true});
+    }
+    return null;
+  }
   const conversation=[{role:"system",content:WEB_TOOL_INSTRUCTIONS},...messages.map(item=>({...item}))];
   const events:any[]=[]; const images:string[]=[]; let lastToolText="";
   const preferred=requestedModel||DEFAULT_MODELS[tier]||DEFAULT_MODELS.free;
@@ -235,22 +278,15 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
     // Algunos modelos devuelven la llamada como JSON en content en vez de usar tool_calls.
     // Convierte ese formato para que la herramienta se ejecute y no se muestre al usuario.
     if(!calls.length && typeof msg.content === "string"){
-      try{
-        const raw=msg.content.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");
-        const parsed=JSON.parse(raw);
-        const name=String(parsed?.tool??parsed?.name??parsed?.function??"");
-        const args=parsed?.arguments??parsed?.args??parsed?.parameters??{};
-        if(name && WEB_TOOL_SCHEMAS.some((entry:any)=>entry.function?.name===name)){
-          calls=[{id:`text-tool-${round}`,type:"function",function:{name,arguments:JSON.stringify(args)}}];
-        }
-      }catch{}
+      const parsedCall=parseTextToolCall(msg.content);
+      if(parsedCall) calls=[{id:`text-tool-${round}`,type:"function",function:{name:parsedCall.name,arguments:JSON.stringify(parsedCall.args)}}];
     }
     if(!calls.length){
       if(caller?.kind==="account"){
         const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
         await rpc("spend_user_credits",{p_uid:String(caller.uid),p_period:period,p_amount:Math.max(1,events.length+1)});
       }
-      return json(200,{content:cleanToolTrace(String(msg.content??"")),tool_events:events,images,model:data?.model??model,tier,tools_available:true});
+      return json(200,{content:safeAssistantContent(String(msg.content??"")),tool_events:events,images,model:data?.model??model,tier,tools_available:true});
     }
     conversation.push({role:"assistant",content:calls.length&&msg.content?.trim().startsWith("{")?null:(msg.content??null),tool_calls:calls});
     for(const call of calls){
@@ -302,7 +338,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const found = Object.keys(XENS_ALIAS_MAP).find(k=>k.toLowerCase()===alias.toLowerCase());
     if(found) body.model = XENS_ALIAS_MAP[found].model;
   }
-  if(body?.tool_mode===true){ messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS}); const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,false); if(toolResponse) return toolResponse; }
+  if(body?.tool_mode===true){ messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS}); const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,Boolean(body?.web_search)); if(toolResponse) return toolResponse; return json(503,{error:"Las herramientas cloud no están disponibles en este momento."}); }
   // stream flag — always prefer stream for word-by-word (reduces perceived latency)
   if(body?.stream || body?.xens_stream !== false) {
     // if caller wants streaming but didn't set stream, we upgrade to stream when not needing tools? keep tools streaming
