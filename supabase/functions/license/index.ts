@@ -189,7 +189,7 @@ Debes usar estas herramientas cuando correspondan. No digas que careces de herra
 async function handleWebToolChat(messages:any[], tier:string, requestedModel:string, caller:any, forceSearch:boolean=false):Promise<Response|null>{
   if(!OPENROUTER_KEY) return null;
   const conversation=[{role:"system",content:WEB_TOOL_INSTRUCTIONS},...messages.map(item=>({...item}))];
-  const events:any[]=[]; const images:string[]=[];
+  const events:any[]=[]; const images:string[]=[]; let lastToolText="";
   const preferred=requestedModel||DEFAULT_MODELS[tier]||DEFAULT_MODELS.free;
   const candidates=[preferred,"google/gemini-2.0-flash-001","qwen/qwen-2.5-coder-32b-instruct","deepseek/deepseek-v4.1-flash"].filter((model,index,list)=>model&&list.indexOf(model)===index);
   let model=preferred;
@@ -199,7 +199,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
       const attempt=await requestToolModel({model:candidate,messages:conversation,tools:WEB_TOOL_SCHEMAS,tool_choice:forceSearch?{type:"function",function:{name:"web_search"}}:"auto",temperature:.3,max_tokens:2000});
       if(attempt && attempt.ok){ response=attempt; model=candidate; break; }
     }
-    if(!response) return null;
+    if(!response) return events.length ? json(200,{content:lastToolText||"La herramienta se ejecutó, pero no se pudo redactar una respuesta final.",tool_events:events,images,model,tier,tools_available:true}) : null;
     const data=await response.json().catch(()=>({}));
     const msg=data?.choices?.[0]?.message??{};
     let calls=Array.isArray(msg.tool_calls)?msg.tool_calls:[];
@@ -234,7 +234,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
       conversation.push({role:"tool",tool_call_id:call.id,content:result.text});
     }
   }
-  return null;
+  return events.length ? json(200,{content:lastToolText||"La herramienta se ejecutó, pero no se pudo redactar una respuesta final.",tool_events:events,images,model,tier,tools_available:true}) : null;
 }
 
 async function handleChat(req: Request, auth:string, body:any): Promise<Response>{
