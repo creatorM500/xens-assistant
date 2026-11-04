@@ -246,15 +246,16 @@ const WEB_TOOL_INSTRUCTIONS = `Herramientas cloud disponibles en AINSLUP Web:
 Debes usar estas herramientas cuando correspondan. No digas que careces de herramientas si una de ellas puede resolver la petición. AINSLUP Web nunca tiene acceso a archivos locales, ventanas, comandos ni al ordenador del usuario.`;
 async function handleWebToolChat(messages:any[], tier:string, requestedModel:string, caller:any, forceSearch:boolean=false):Promise<Response|null>{
   const latestUser=String([...messages].reverse().find((item:any)=>item?.role==="user")?.content??"");
-  const dateIntent=/\b(qué\s+d[ií]a|que dia|fecha(?: actual)?|hora actual|what day|current date|current time)\b/i.test(latestUser);
+  const dateIntent=/\b(qué\s+d[ií]a|que dia|fecha(?: actual)?|hora(?: actual)?|hoy|what day|current date|current time)\b/i.test(latestUser);
   const directEvents:any[]=[]; const directImages:string[]=[];
   if(dateIntent){
     const result=await executeWebTool("get_current_time",{});
     directEvents.push({name:"get_current_time",status:"completed"});
     return json(200,{content:`Hoy es ${result.text}.`,tool_events:directEvents,images:directImages,model:requestedModel||"cloud",tier,tools_available:true});
   }
+  const searchIntent=forceSearch && /\b(busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestUser);
   if(!OPENROUTER_KEY){
-    if(forceSearch){
+    if(searchIntent){
       const result=await executeWebTool("web_search",{query:latestUser});
       return json(200,{content:result.text||"No se encontraron resultados públicos.",tool_events:[{name:"web_search",status:"completed"}],images:directImages,model:requestedModel||"cloud",tier,tools_available:true});
     }
@@ -338,7 +339,14 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const found = Object.keys(XENS_ALIAS_MAP).find(k=>k.toLowerCase()===alias.toLowerCase());
     if(found) body.model = XENS_ALIAS_MAP[found].model;
   }
-  if(body?.tool_mode===true){ messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS}); const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,Boolean(body?.web_search)); if(toolResponse) return toolResponse; return json(503,{error:"Las herramientas cloud no están disponibles en este momento."}); }
+  if(body?.tool_mode===true){
+    messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS});
+    const latestRequest=String(messages[messages.length-1]?.content??"");
+    const needsTool=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest) || Boolean(body?.web_search && /\S/.test(latestRequest));
+    const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,Boolean(body?.web_search));
+    if(toolResponse) return toolResponse;
+    if(needsTool) return json(503,{error:"Las herramientas cloud no están disponibles en este momento."});
+  }
   // stream flag — always prefer stream for word-by-word (reduces perceived latency)
   if(body?.stream || body?.xens_stream !== false) {
     // if caller wants streaming but didn't set stream, we upgrade to stream when not needing tools? keep tools streaming
@@ -394,7 +402,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     return json(200,{content:safeContent,tool_calls:[],tool_events:[{name:"web_search",status:"completed"}],tools_available:true,model:up?.model??model,tier});
   }
   if(lic) await rpc("bump_usage",{p_license_id:lic.id,p_period:period,p_tokens_in:Number(up?.usage?.prompt_tokens??0),p_tokens_out:Number(up?.usage?.completion_tokens??0)});
-  return json(200,{content:msg.content??"",tool_calls:msg.tool_calls??[],tool_events:wantsSearch?[{name:"web_search",status:"completed"}]:[],tools_available:true,model:up?.model??model,usage:up?.usage??null,tier});
+  return json(200,{content:safeAssistantContent(String(msg.content??"")),tool_calls:msg.tool_calls??[],tool_events:wantsSearch?[{name:"web_search",status:"completed"}]:[],tools_available:true,model:up?.model??model,usage:up?.usage??null,tier});
 }
 async function tryStream(url:string,key:string,mdl:string,messages:any,tools:any):Promise<Response|null>{
   const payload:any={model:mdl,messages,temperature:0.3,stream:true}; if(Array.isArray(tools)&&tools.length>0) payload.tools=tools;
