@@ -138,9 +138,10 @@ async function handleCreditsSpend(body:any): Promise<Response>{
 }
 function secondsUntilReset(): number{ const now=new Date(); const nxt=new Date(now.getFullYear(), now.getMonth()+1, 1); return Math.floor((nxt.getTime()-now.getTime())/1000); }
 async function webContext(query:string):Promise<string>{
+  const controller=new AbortController(); const timeout=setTimeout(()=>controller.abort(),10000);
   try{
     const url=`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
-    const r=await fetch(url,{headers:{"user-agent":"Mozilla/5.0 AINSLUP-Web/1.0"}}); if(!r.ok) return "";
+    const r=await fetch(url,{headers:{"user-agent":"Mozilla/5.0 AINSLUP-Web/1.0"},signal:controller.signal}); if(!r.ok) return "";
     const html=await r.text(); const out:string[]=[];
     const re=/<a(?=[^>]*class=['"]result-link['"])(?=[^>]*href=['"]([^'"]+)['"])[^>]*>([\s\S]*?)<\/a>[\s\S]*?<td(?=[^>]*class=['"]result-snippet['"])[^>]*>([\s\S]*?)<\/td>/gi;
     const clean=(v:string)=>v.replace(/<[^>]+>/g," ").replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#x27;/g,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim();
@@ -176,9 +177,10 @@ const WEB_TOOL_SCHEMAS = [
 function calculateSafe(expression:string): string { const clean=expression.replace(/\^/g,"**").trim(); if(!clean || !/^[0-9+\-*/%().\s*]+$/.test(clean)) return "Solo se permiten números y operadores matemáticos básicos."; try { const result=Function(`"use strict"; return (${clean})`)(); if(typeof result!=="number" || !Number.isFinite(result)) return "El resultado no es finito."; return String(result); } catch { return "No se pudo evaluar la expresión."; } }
 async function executeWebTool(name:string,args:any):Promise<{text:string;image?:string}> { const searchQuery=String(args?.query??(Array.isArray(args?.queries)?args.queries[0]:"")); if(name==="web_search") return {text:(await webContext(searchQuery))||"No se encontraron resultados públicos."}; if(name==="calculator") return {text:calculateSafe(String(args?.expression??""))}; if(name==="get_current_time") { const zone=String(args?.timezone||"UTC"); try { return {text:new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:zone}).format(new Date())}; } catch { return {text:new Date().toISOString()}; } } if(name==="generate_image") { const account=Deno.env.get("CLOUDFLARE_ACCOUNT_ID")??""; const token=Deno.env.get("CLOUDFLARE_API_TOKEN")??""; if(!account||!token) return {text:"La generación de imágenes todavía no está configurada en AINSLUP Web."}; const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/ai/run/@cf/black-forest-labs/flux-1-schnell`,{method:"POST",headers:{authorization:`Bearer ${token}`,"content-type":"application/json"},body:JSON.stringify({prompt:String(args?.prompt??""),steps:4})}); const data=await r.json().catch(()=>({})); if(!r.ok||!data?.result?.image) return {text:"No se pudo generar la imagen en este momento."}; return {text:"Imagen generada correctamente. Preséntala al usuario y ofrece hacer cambios.",image:`data:image/jpeg;base64,${data.result.image}`}; } return {text:`Herramienta no disponible: ${name}`}; }
 async function requestToolModel(payload:any):Promise<Response|null>{
+  const controller=new AbortController(); const timeout=setTimeout(()=>controller.abort(),20000);
   try{
-    return await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{authorization:`Bearer ${OPENROUTER_KEY}`,"content-type":"application/json"},body:JSON.stringify(payload)});
-  }catch{return null;}
+    return await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{authorization:`Bearer ${OPENROUTER_KEY}`,"content-type":"application/json"},body:JSON.stringify(payload),signal:controller.signal});
+  }catch{return null;} finally { clearTimeout(timeout); }
 }
 const WEB_TOOL_INSTRUCTIONS = `Herramientas cloud disponibles en AINSLUP Web:
 - web_search: consulta información pública actualizada en Internet.
