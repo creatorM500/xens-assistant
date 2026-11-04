@@ -248,13 +248,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
   const latestUser=String([...messages].reverse().find((item:any)=>item?.role==="user")?.content??"");
   const directEvents:any[]=[]; const directImages:string[]=[];
   const searchIntent=forceSearch;
-  if(!OPENROUTER_KEY){
-    if(searchIntent){
-      const result=await executeWebTool("web_search",{query:latestUser});
-      return json(200,{content:result.text||"No se encontraron resultados públicos.",tool_events:[{name:"web_search",status:"completed"}],images:directImages,model:requestedModel||"cloud",tier,tools_available:true});
-    }
-    return null;
-  }
+  if(!OPENROUTER_KEY) return null;
   const conversation=[{role:"system",content:WEB_TOOL_INSTRUCTIONS},...messages.map(item=>({...item}))];
   const events:any[]=[]; const images:string[]=[]; let lastToolText="";
   const preferred=requestedModel||DEFAULT_MODELS[tier]||DEFAULT_MODELS.free;
