@@ -562,3 +562,71 @@ select:focus-visible {
     padding-inline: 5px !important;
   }
 }
+
+
+/* Chat reading surface polish */
+.messages-area {
+  position: relative;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  padding-bottom: 30px !important;
+}
+.messages-area.is-scrolling {
+  scrollbar-color: #3a3556 transparent;
+}
+.messages-area::-webkit-scrollbar { width: 4px; }
+.messages-area::-webkit-scrollbar-track { background: transparent; }
+.messages-area::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+.messages-area.is-scrolling::-webkit-scrollbar-thumb { background: #3a3556; }
+.message-content { max-width: min(75ch, 100%) !important; }
+.message-row.user .message-content { max-width: min(70ch, calc(100% - 36px)) !important; }
+.message-row { display: flex; align-items: flex-start; }
+.message-row.user { justify-content: flex-end; flex-direction: row !important; }
+.message-row.user .message-avatar { order: 2; margin-left: 8px; }
+.message-row.user .message-content { order: 1; }
+.message-row.assistant .message-avatar { margin-right: 8px; }
+.message-rule {
+  border: 0;
+  border-top: 1px solid #3a3550;
+  margin: 16px 0;
+  opacity: .7;
+}
+.conversation { position: relative; }
+.composer { position: relative; z-index: 2; }
+.composer::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -20px;
+  right: -20px;
+  top: -42px;
+  height: 44px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg) 88%);
+}
+.scroll-to-bottom {
+  position: absolute;
+  z-index: 4;
+  right: 22px;
+  bottom: 92px;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid #51458c;
+  border-radius: 50%;
+  background: #1c1930eF;
+  color: var(--text);
+  box-shadow: 0 8px 22px #0006;
+  cursor: pointer;
+}
+.scroll-to-bottom:hover { background: var(--violet); border-color: var(--violet); transform: translateY(-1px); }
+@media (max-width: 760px) {
+  .messages-area { padding-bottom: 24px !important; }
+  .scroll-to-bottom { right: 14px; bottom: 78px; width: 36px; height: 36px; }
+  .composer::before { left: -8px; right: -8px; top: -34px; height: 36px; }
+  .message-content { max-width: 75ch !important; }
+}
