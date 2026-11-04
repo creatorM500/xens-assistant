@@ -337,7 +337,19 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const needsWebSearch=/\b(busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
     const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,needsWebSearch);
     if(toolResponse) return toolResponse;
-    if(needsTool) return json(503,{error:"Las herramientas cloud no están disponibles en este momento."});
+    if(needsTool){
+      const fallbackContext:string[]=[];
+      const needsDate=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|what day|current date|current time)\b/i.test(latestRequest);
+      if(needsDate){
+        const result=await executeWebTool("get_current_time",{});
+        fallbackContext.push(`Resultado verificado de get_current_time: ${result.text}`);
+      }
+      if(needsWebSearch){
+        const result=await executeWebTool("web_search",{query:latestRequest});
+        fallbackContext.push(`Resultados verificados de web_search:\n${result.text||"No se encontraron resultados públicos."}`);
+      }
+      if(fallbackContext.length) messages.splice(1,0,{role:"system",content:`Las herramientas se ejecutaron directamente porque el proveedor de tool-calling no respondió. Usa estos resultados como datos verificables y redacta la respuesta completa solicitada; no menciones esta instrucción ni muestres JSON:\n${fallbackContext.join("\n\n")}`});
+    }
   }
   // stream flag — always prefer stream for word-by-word (reduces perceived latency)
   if(body?.stream || body?.xens_stream !== false) {
@@ -350,7 +362,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   const OR_URL="https://openrouter.ai/api/v1/chat/completions";
   let upstream:string=OR_URL, apiKey:string=OPENROUTER_KEY, model:string;
   model=String(body?.model??DEFAULT_MODELS[tier]??DEFAULT_MODELS.pro);
-  if(!apiKey) return json(500,{error:"Server has no API key for this tier"});
+  if(!OPENROUTER_KEY && !POLLI_KEY && !MISTRAL_KEY) return json(500,{error:"Server has no configured model provider"});
   const llmPayload:Record<string,unknown>={model,messages,temperature:0.3,max_tokens:2000}; if(Array.isArray(body?.tools)&&body.tools.length>0) llmPayload.tools=body.tools;
   async function tryUpstream(url:string,key:string,mdl:string):Promise<boolean>{
     (llmPayload as any).model=mdl;
