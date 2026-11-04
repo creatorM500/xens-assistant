@@ -234,7 +234,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   const latest=String(messages[messages.length-1]?.content??"");
   const wantsSearch=Boolean(body?.web_search) || /\b(busca|buscar|b[uú]squeda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|actual|ahora|hoy|últim[oa]|reciente|semana|202[4-9]|203\d)\b/i.test(latest);
   let searchContext="";
-  if(wantsSearch){
+  if(wantsSearch && body?.tool_mode!==true){
     searchContext=await webContext(latest);
     messages.splice(0,0,{role:"system",content:searchContext?`La herramienta web_search ya se ejecutó correctamente. Usa estos resultados y cita las fuentes; no digas que careces de motor de búsqueda:\n${searchContext}`:"La herramienta web_search está activa, pero no devolvió resultados para esta consulta. No digas que no existe un motor; explica que no hubo resultados verificables."});
   }
@@ -256,7 +256,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const found = Object.keys(XENS_ALIAS_MAP).find(k=>k.toLowerCase()===alias.toLowerCase());
     if(found) body.model = XENS_ALIAS_MAP[found].model;
   }
-  if(body?.tool_mode===true && !wantsSearch){ messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS}); const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,false); if(toolResponse) return toolResponse; }
+  if(body?.tool_mode===true){ messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS}); const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,false); if(toolResponse) return toolResponse; }
   // stream flag — always prefer stream for word-by-word (reduces perceived latency)
   if(body?.stream || body?.xens_stream !== false) {
     // if caller wants streaming but didn't set stream, we upgrade to stream when not needing tools? keep tools streaming
