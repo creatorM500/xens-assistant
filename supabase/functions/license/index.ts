@@ -202,7 +202,20 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
     if(!response) return null;
     const data=await response.json().catch(()=>({}));
     const msg=data?.choices?.[0]?.message??{};
-    const calls=Array.isArray(msg.tool_calls)?msg.tool_calls:[];
+    let calls=Array.isArray(msg.tool_calls)?msg.tool_calls:[];
+    // Algunos modelos devuelven la llamada como JSON en content en vez de usar tool_calls.
+    // Convierte ese formato para que la herramienta se ejecute y no se muestre al usuario.
+    if(!calls.length && typeof msg.content === "string"){
+      try{
+        const raw=msg.content.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");
+        const parsed=JSON.parse(raw);
+        const name=String(parsed?.tool??parsed?.name??parsed?.function??"");
+        const args=parsed?.arguments??parsed?.args??parsed?.parameters??{};
+        if(name && WEB_TOOL_SCHEMAS.some((entry:any)=>entry.function?.name===name)){
+          calls=[{id:`text-tool-${round}`,type:"function",function:{name,arguments:JSON.stringify(args)}}];
+        }
+      }catch{}
+    }
     if(!calls.length){
       if(caller?.kind==="account"){
         const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
@@ -210,7 +223,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
       }
       return json(200,{content:msg.content??"",tool_events:events,images,model:data?.model??model,tier,tools_available:true});
     }
-    conversation.push({role:"assistant",content:msg.content??null,tool_calls:calls});
+    conversation.push({role:"assistant",content:calls.length&&msg.content?.trim().startsWith("{")?null:(msg.content??null),tool_calls:calls});
     for(const call of calls){
       let args:any={}; try{ args=JSON.parse(call.function?.arguments||"{}"); }catch{}
       const name=String(call.function?.name||""); events.push({name:name||"tool",status:"running"});
