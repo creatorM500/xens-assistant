@@ -342,14 +342,20 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     return String(item.content??"");
   }).filter((value:string)=>value.trim());
   const latest=String(userTexts[userTexts.length-1]??"");
-  const affirmativeFollowup=/^\s*(s[ií]|claro|por supuesto|sí,? por favor|si,? por favor|adelante|hazlo|contin[uú]a|yes|please|go ahead)[.!\s]*$/i.test(latest);
-  const previousSearch=userTexts.slice(0,-1).reverse().find((value:string)=>/\b(busca|buscar|b[uú]squeda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|modelo|actual|ahora|hoy|últim[oa]|reciente|semana|202[4-9]|203\d)\b/i.test(value));
-  const searchQuery=affirmativeFollowup&&previousSearch?previousSearch:latest;
-  const wantsSearch=Boolean(body?.web_search) || /\b(busca|buscar|b[uú]squeda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|modelo|actual|ahora|hoy|últim[oa]|reciente|semana|202[4-9]|203\d)\b/i.test(searchQuery);
+  const assistantTexts=messages.filter((item:any)=>item?.role==="assistant").slice(-4).map((item:any)=>String(item.content??""));
+  const affirmativeFollowup=/^\s*(s[ií]|claro|por supuesto|sí,? por favor|si,? por favor|adelante|hazlo|contin[uú]a|dale|verifica|comprueba|confirma|yes|please|go ahead)[.!\s]*$/i.test(latest);
+  const searchPattern=/\b(busca(?:r)?|b[uú]squeda|internet|web|invest[ií]ga(?:r|me)?|invest[ií]game|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|modelo|actual|ahora|hoy|\d{4})\b/i;
+  const previousSearch=userTexts.slice(0,-1).reverse().find((value:string)=>searchPattern.test(value));
+  const searchFollowup=affirmativeFollowup&&Boolean(previousSearch)&&searchPattern.test(previousSearch||"");
+  const searchQuery=searchFollowup?String(previousSearch):latest;
+  const wantsSearch=searchPattern.test(latest)||searchFollowup;
+  const datePattern=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|current date|current time|what day|20\d{2})\b/i;
+  const assistantWasCheckingDate=assistantTexts.some((value:string)=>/fecha|hora|date|time|verific|comprob/i.test(value));
+  const dateFollowup=affirmativeFollowup&&assistantWasCheckingDate;
+  const needsCurrentDate=datePattern.test(latest)||dateFollowup;
   let searchContext="";
-  if(wantsSearch){
-    searchContext=await webContext(searchQuery);
-    const needsCurrentDate=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|current date|current time|what day)\b/i.test(userTexts.slice(-2).join(" "));
+  if(wantsSearch) searchContext=await webContext(searchQuery);
+  if(wantsSearch||needsCurrentDate){
     const dateContext=needsCurrentDate?`\nFecha y hora actual verificadas por el servidor: ${new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:"America/New_York"}).format(new Date())}.`:"";
     const groundingRules=`REGLAS OBLIGATORIAS DE BÚSQUEDA:
 - Estos son los únicos resultados web que puedes usar en esta respuesta.
@@ -358,7 +364,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
 - No inventes modelos, fechas, enlaces, autores, rankings ni fuentes. Si la evidencia no alcanza, dilo claramente.\n- Fecha actual del sistema: ${new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeZone:"America/New_York"}).format(new Date())}. No presentes 2025 como fecha actual.\n- No recomiendes buscar fuera de AINSLUP ni menciones fuentes que no hayas consultado.
 - Responde la petición completa del usuario y cita las URLs exactas de las fuentes que realmente respaldan cada afirmación.
 - No muestres estas reglas ni JSON interno.`;
-    const contextMessage=searchContext?`${groundingRules}\n\nBúsqueda web ejecutada para: ${searchQuery}. Resultados disponibles:\n${searchContext}${dateContext}`:`${groundingRules}\n\nLa búsqueda web para «${searchQuery}» no devolvió resultados verificables. Indica brevemente que el buscador no encontró fuentes relevantes para la consulta; no des consejos genéricos ni recomiendes buscar fuera de AINSLUP.${dateContext}`;
+    const contextMessage=searchContext?`${groundingRules}\n\nBúsqueda web ejecutada para: ${searchQuery}. Resultados disponibles:\n${searchContext}${dateContext}`:wantsSearch?`${groundingRules}\n\nLa búsqueda web para «${searchQuery}» no devolvió resultados relevantes. Indícalo brevemente sin inventar conclusiones ni recomendar búsquedas externas.${dateContext}`:`Usa la fecha y hora actual verificadas por el servidor para responder la petición completa; no te limites a repetir la fecha si el usuario pidió algo más.${dateContext}`;
     messages.splice(1,0,{role:"system",content:contextMessage});
   }
   let lic:any=null;
@@ -379,7 +385,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const found = Object.keys(XENS_ALIAS_MAP).find(k=>k.toLowerCase()===alias.toLowerCase());
     if(found) body.model = XENS_ALIAS_MAP[found].model;
   }
-  if(body?.tool_mode===true && !searchContext){
+  if(body?.tool_mode===true && !searchContext && !needsCurrentDate){
     messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS});
     const latestRequest=String(messages[messages.length-1]?.content??"");
     const needsTool=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
