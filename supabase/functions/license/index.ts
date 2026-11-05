@@ -271,6 +271,10 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
       if(parsedCall) calls=[{id:`text-tool-${round}`,type:"function",function:{name:parsedCall.name,arguments:JSON.stringify(parsedCall.args)}}];
     }
     if(!calls.length){
+      // Si el proveedor devuelve argumentos JSON como contenido, no los enseñes
+      // ni los conviertas en un mensaje genérico: deja que handleChat ejecute el
+      // fallback cloud y redacte la respuesta completa con el modelo normal.
+      if(isToolPayload(String(msg.content??""))) return null;
       if(caller?.kind==="account"){
         const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
         await rpc("spend_user_credits",{p_uid:String(caller.uid),p_period:period,p_amount:Math.max(1,events.length+1)});
