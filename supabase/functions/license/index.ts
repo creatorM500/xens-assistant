@@ -138,21 +138,34 @@ async function handleCreditsSpend(body:any): Promise<Response>{
 }
 function secondsUntilReset(): number{ const now=new Date(); const nxt=new Date(now.getFullYear(), now.getMonth()+1, 1); return Math.floor((nxt.getTime()-now.getTime())/1000); }
 async function webContext(query:string):Promise<string>{
-  const controller=new AbortController(); const timeout=setTimeout(()=>controller.abort(),10000);
+  const out:string[]=[];
+  const clean=(v:string)=>v.replace(/<[^>]+>/g," ").replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#x27;|&#39;/g,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim();
+  const ddgController=new AbortController(); const ddgTimeout=setTimeout(()=>ddgController.abort(),7000);
   try{
-    const url=`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
-    const r=await fetch(url,{headers:{"user-agent":"Mozilla/5.0 AINSLUP-Web/1.0"},signal:controller.signal}); if(!r.ok) return "";
-    const html=await r.text(); const out:string[]=[];
-    const re=/<a(?=[^>]*class=['"]result-link['"])(?=[^>]*href=['"]([^'"]+)['"])[^>]*>([\s\S]*?)<\/a>[\s\S]*?<td(?=[^>]*class=['"]result-snippet['"])[^>]*>([\s\S]*?)<\/td>/gi;
-    const clean=(v:string)=>v.replace(/<[^>]+>/g," ").replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#x27;/g,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim();
-    let m:RegExpExecArray|null;
-    while((m=re.exec(html))&&out.length<8){
-      const raw=clean(m[1]); const encoded=raw.includes("uddg=")?raw.split("uddg=")[1].split("&")[0]:raw;
-      let link=encoded; try{link=decodeURIComponent(encoded);}catch{}
-      out.push(`- ${clean(m[2])}: ${clean(m[3])} (${link})`);
+    const r=await fetch(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`,{headers:{"user-agent":"Mozilla/5.0 AINSLUP-Web/1.0"},signal:ddgController.signal});
+    if(r.ok){
+      const html=await r.text();
+      const re=/<a(?=[^>]*class=['"]result-link['"])(?=[^>]*href=['"]([^'"]+)['"])[^>]*>([\s\S]*?)<\/a>[\s\S]*?<td(?=[^>]*class=['"]result-snippet['"])[^>]*>([\s\S]*?)<\/td>/gi;
+      let m:RegExpExecArray|null;
+      while((m=re.exec(html))&&out.length<8){
+        const raw=clean(m[1]).replace(/&amp;/g,"&"); const encoded=raw.includes("uddg=")?raw.split("uddg=")[1].split("&")[0]:raw;
+        let link=encoded; try{link=decodeURIComponent(encoded);}catch{}
+        out.push(`- ${clean(m[2])}: ${clean(m[3])} (${link})`);
+      }
     }
-    return out.join("\n");
-  }catch{return "";}
+  }catch{}finally{clearTimeout(ddgTimeout);}
+  if(out.length) return out.join("\n");
+  const bingController=new AbortController(); const bingTimeout=setTimeout(()=>bingController.abort(),8000);
+  try{
+    const r=await fetch(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`,{headers:{"user-agent":"Mozilla/5.0 AINSLUP-Web/1.0","accept":"application/rss+xml, application/xml, text/xml"},signal:bingController.signal});
+    if(r.ok){
+      const xml=await r.text();
+      const re=/<item>\s*<title>([\s\S]*?)<\/title>\s*<link>([\s\S]*?)<\/link>\s*<description>([\s\S]*?)<\/description>/gi;
+      const decode=(v:string)=>v.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,"$1").replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#39;|&#x27;/g,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
+      let m:RegExpExecArray|null; while((m=re.exec(xml))&&out.length<8) out.push(`- ${decode(m[1])}: ${decode(m[3])} (${decode(m[2])})`);
+    }
+  }catch{}finally{clearTimeout(bingTimeout);}
+  return out.join("\n");
 }
 
 const AINSLUP_WEB_IDENTITY = `Identidad y contexto permanente de AINSLUP:
@@ -303,12 +316,23 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   messages.splice(0,0,{role:"system",content:AINSLUP_WEB_IDENTITY});
   // La Web no expone herramientas locales, pero sí puede consultar información pública.
   // Añadimos resultados de búsqueda como contexto para preguntas actuales.
-  const latest=String(messages[messages.length-1]?.content??"");
-  const wantsSearch=Boolean(body?.web_search) || /\b(busca|buscar|b[uú]squeda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|actual|ahora|hoy|últim[oa]|reciente|semana|202[4-9]|203\d)\b/i.test(latest);
+  const userTexts=messages.filter((item:any)=>item?.role==="user").map((item:any)=>{
+    if(typeof item.content==="string") return item.content;
+    if(Array.isArray(item.content)) return item.content.filter((part:any)=>part?.type==="text").map((part:any)=>part.text).join(" ");
+    return String(item.content??"");
+  }).filter((value:string)=>value.trim());
+  const latest=String(userTexts[userTexts.length-1]??"");
+  const affirmativeFollowup=/^\s*(s[ií]|claro|por supuesto|sí,? por favor|si,? por favor|adelante|hazlo|contin[uú]a|yes|please|go ahead)[.!\s]*$/i.test(latest);
+  const previousSearch=userTexts.slice(0,-1).reverse().find((value:string)=>/\b(busca|buscar|b[uú]squeda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|modelo|actual|ahora|hoy|últim[oa]|reciente|semana|202[4-9]|203\d)\b/i.test(value));
+  const searchQuery=affirmativeFollowup&&previousSearch?previousSearch:latest;
+  const wantsSearch=Boolean(body?.web_search) || /\b(busca|buscar|b[uú]squeda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|modelo|actual|ahora|hoy|últim[oa]|reciente|semana|202[4-9]|203\d)\b/i.test(searchQuery);
   let searchContext="";
-  if(wantsSearch && body?.tool_mode!==true){
-    searchContext=await webContext(latest);
-    messages.splice(0,0,{role:"system",content:searchContext?`La herramienta web_search ya se ejecutó correctamente. Usa estos resultados y cita las fuentes; no digas que careces de motor de búsqueda:\n${searchContext}`:"La herramienta web_search está activa, pero no devolvió resultados para esta consulta. No digas que no existe un motor; explica que no hubo resultados verificables."});
+  if(wantsSearch){
+    searchContext=await webContext(searchQuery);
+    const needsCurrentDate=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|current date|current time|what day)\b/i.test(userTexts.slice(-2).join(" "));
+    const dateContext=needsCurrentDate?`\nFecha y hora actual verificadas por el servidor: ${new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:"America/New_York"}).format(new Date())}.`:"";
+    const contextMessage=searchContext?`Búsqueda web ejecutada para: ${searchQuery}. Usa estos resultados actuales, responde la solicitud completa y cita las URLs cuando sea útil. No afirmes que no hay resultados si estos datos están presentes:\n${searchContext}${dateContext}`:`La búsqueda web para «${searchQuery}» no devolvió resultados verificables. No inventes resultados ni afirmes haber encontrado fuentes.${dateContext}`;
+    messages.splice(1,0,{role:"system",content:contextMessage});
   }
   let lic:any=null;
   const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
@@ -328,7 +352,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const found = Object.keys(XENS_ALIAS_MAP).find(k=>k.toLowerCase()===alias.toLowerCase());
     if(found) body.model = XENS_ALIAS_MAP[found].model;
   }
-  if(body?.tool_mode===true){
+  if(body?.tool_mode===true && !searchContext){
     messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS});
     const latestRequest=String(messages[messages.length-1]?.content??"");
     const needsTool=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
