@@ -346,12 +346,12 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   const affirmativeFollowup=/^\s*(s[ií]|claro|por supuesto|sí,? por favor|si,? por favor|adelante|hazlo|contin[uú]a|dale|verifica|comprueba|confirma|yes|please|go ahead)[.!\s]*$/i.test(latest);
   const searchPattern=/\b(busca(?:r)?|b[uú]squeda|internet|web|invest[ií]ga(?:r|me)?|invest[ií]game|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|modelo|actual|ahora|hoy|\d{4})\b/i;
   const previousSearch=userTexts.slice(0,-1).reverse().find((value:string)=>searchPattern.test(value));
-  const searchFollowup=affirmativeFollowup&&Boolean(previousSearch)&&searchPattern.test(previousSearch||"");
-  const searchQuery=searchFollowup?String(previousSearch):latest;
-  const wantsSearch=searchPattern.test(latest)||searchFollowup;
   const datePattern=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|current date|current time|what day|20\d{2})\b/i;
   const assistantWasCheckingDate=assistantTexts.some((value:string)=>/fecha|hora|date|time|verific|comprob/i.test(value));
   const dateFollowup=affirmativeFollowup&&assistantWasCheckingDate;
+  const searchFollowup=affirmativeFollowup&&!dateFollowup&&Boolean(previousSearch)&&searchPattern.test(previousSearch||"");
+  const searchQuery=searchFollowup?String(previousSearch):latest;
+  const wantsSearch=searchPattern.test(latest)||searchFollowup;
   const needsCurrentDate=datePattern.test(latest)||dateFollowup;
   let searchContext="";
   if(wantsSearch) searchContext=await webContext(searchQuery);
@@ -367,6 +367,12 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const contextMessage=searchContext?`${groundingRules}\n\nBúsqueda web ejecutada para: ${searchQuery}. Resultados disponibles:\n${searchContext}${dateContext}`:wantsSearch?`${groundingRules}\n\nLa búsqueda web para «${searchQuery}» no devolvió resultados relevantes. Indícalo brevemente sin inventar conclusiones ni recomendar búsquedas externas.${dateContext}`:`Usa la fecha y hora actual verificadas por el servidor para responder la petición completa; no te limites a repetir la fecha si el usuario pidió algo más.${dateContext}`;
     messages.splice(1,0,{role:"system",content:contextMessage});
   }
+  const suppliedNow=typeof body?.client_now==="string"?new Date(body.client_now):new Date();
+  const referenceNow=Number.isNaN(suppliedNow.getTime())?new Date():suppliedNow;
+  const requestedZone=String(body?.client_timezone||"America/New_York");
+  let referenceDate="";
+  try{referenceDate=new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:requestedZone}).format(referenceNow);}catch{referenceDate=new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:"America/New_York"}).format(referenceNow);}
+  messages.splice(Math.max(1,messages.length-1),0,{role:"system",content:`REFERENCIA TEMPORAL ACTUAL Y OBLIGATORIA: ${referenceDate} (${requestedZone}). Esta fecha viene del reloj actual del cliente en esta solicitud. Nunca afirmes que hoy es 2025 ni que tu reloj interno marca otra fecha. Distingue fechas históricas de la fecha actual. En preguntas sobre lanzamientos, solo concluye lo respaldado por las fuentes adjuntas; ausencia de resultados no demuestra que algo no exista.`});
   let lic:any=null;
   const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
   if(caller.kind==="license"){
@@ -384,6 +390,10 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   } else if(alias && alias.toLowerCase()!=="auto"){
     const found = Object.keys(XENS_ALIAS_MAP).find(k=>k.toLowerCase()===alias.toLowerCase());
     if(found) body.model = XENS_ALIAS_MAP[found].model;
+  }
+  if(wantsSearch&&!searchContext){
+    const answer=`No pude encontrar fuentes web relevantes para «${searchQuery}». Con la información disponible no puedo confirmar si existe ni describir ese modelo; no voy a presentarte datos antiguos o especulativos como actuales.`;
+    return json(200,{content:answer,tool_events:[{name:"web_search",status:"completed"}],tools_available:true,model:String(body?.model??""),tier});
   }
   if(body?.tool_mode===true && !searchContext && !needsCurrentDate){
     messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS});
