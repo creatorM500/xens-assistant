@@ -138,34 +138,39 @@ async function handleCreditsSpend(body:any): Promise<Response>{
 }
 function secondsUntilReset(): number{ const now=new Date(); const nxt=new Date(now.getFullYear(), now.getMonth()+1, 1); return Math.floor((nxt.getTime()-now.getTime())/1000); }
 async function webContext(query:string):Promise<string>{
-  const out:string[]=[];
+  type Hit={title:string;snippet:string;url:string};
+  const hits:Hit[]=[];
   const clean=(v:string)=>v.replace(/<[^>]+>/g," ").replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#x27;|&#39;/g,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim();
-  const ddgController=new AbortController(); const ddgTimeout=setTimeout(()=>ddgController.abort(),7000);
-  try{
-    const r=await fetch(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`,{headers:{"user-agent":"Mozilla/5.0 AINSLUP-Web/1.0"},signal:ddgController.signal});
-    if(r.ok){
-      const html=await r.text();
-      const re=/<a(?=[^>]*class=['"]result-link['"])(?=[^>]*href=['"]([^'"]+)['"])[^>]*>([\s\S]*?)<\/a>[\s\S]*?<td(?=[^>]*class=['"]result-snippet['"])[^>]*>([\s\S]*?)<\/td>/gi;
-      let m:RegExpExecArray|null;
-      while((m=re.exec(html))&&out.length<8){
-        const raw=clean(m[1]).replace(/&amp;/g,"&"); const encoded=raw.includes("uddg=")?raw.split("uddg=")[1].split("&")[0]:raw;
-        let link=encoded; try{link=decodeURIComponent(encoded);}catch{}
-        out.push(`- ${clean(m[2])}: ${clean(m[3])} (${link})`);
-      }
+  async function fetchText(url:string, ms:number):Promise<string>{
+    const controller=new AbortController(); const timeout=setTimeout(()=>controller.abort(),ms);
+    try{ const r=await fetch(url,{headers:{"user-agent":"Mozilla/5.0 AINSLUP-Web/1.0","accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},signal:controller.signal}); return r.ok?await r.text():""; }
+    catch{return "";} finally{clearTimeout(timeout);}
+  }
+  const ddg=await fetchText(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`,7000);
+  const ddgRe=/<a(?=[^>]*class=['"]result-link['"])(?=[^>]*href=['"]([^'"]+)['"])[^>]*>([\s\S]*?)<\/a>[\s\S]*?<td(?=[^>]*class=['"]result-snippet['"])[^>]*>([\s\S]*?)<\/td>/gi;
+  let m:RegExpExecArray|null;
+  while((m=ddgRe.exec(ddg))&&hits.length<8){
+    const raw=clean(m[1]).replace(/&amp;/g,"&"); const encoded=raw.includes("uddg=")?raw.split("uddg=")[1].split("&")[0]:raw;
+    let url=encoded; try{url=decodeURIComponent(encoded);}catch{}
+    if(url.startsWith("//")) url=`https:${url}`;
+    hits.push({title:clean(m[2]),snippet:clean(m[3]),url});
+  }
+  if(!hits.length){
+    const rss=await fetchText(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`,8000);
+    const rssRe=/<item>\s*<title>([\s\S]*?)<\/title>\s*<link>([\s\S]*?)<\/link>\s*<description>([\s\S]*?)<\/description>/gi;
+    while((m=rssRe.exec(rss))&&hits.length<8) hits.push({title:clean(m[1]),snippet:clean(m[3]),url:clean(m[2])});
+  }
+  if(!hits.length) return "";
+  const sources:string[]=[];
+  for(const hit of hits.slice(0,5)){
+    let page="";
+    if(/^https?:\/\//i.test(hit.url) && !/bing\.com\/(camera|profile|search)/i.test(hit.url)){
+      const html=await fetchText(hit.url,6000);
+      page=clean(html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>/gi," ")).slice(0,2200);
     }
-  }catch{}finally{clearTimeout(ddgTimeout);}
-  if(out.length) return out.join("\n");
-  const bingController=new AbortController(); const bingTimeout=setTimeout(()=>bingController.abort(),8000);
-  try{
-    const r=await fetch(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`,{headers:{"user-agent":"Mozilla/5.0 AINSLUP-Web/1.0","accept":"application/rss+xml, application/xml, text/xml"},signal:bingController.signal});
-    if(r.ok){
-      const xml=await r.text();
-      const re=/<item>\s*<title>([\s\S]*?)<\/title>\s*<link>([\s\S]*?)<\/link>\s*<description>([\s\S]*?)<\/description>/gi;
-      const decode=(v:string)=>v.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,"$1").replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#39;|&#x27;/g,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
-      let m:RegExpExecArray|null; while((m=re.exec(xml))&&out.length<8) out.push(`- ${decode(m[1])}: ${decode(m[3])} (${decode(m[2])})`);
-    }
-  }catch{}finally{clearTimeout(bingTimeout);}
-  return out.join("\n");
+    sources.push(`Fuente: ${hit.title}\nURL: ${hit.url}\nResumen: ${hit.snippet}${page?`\nContenido visible: ${page}`:""}`);
+  }
+  return sources.join("\n\n");
 }
 
 const AINSLUP_WEB_IDENTITY = `Identidad y contexto permanente de AINSLUP:
