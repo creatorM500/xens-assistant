@@ -129,7 +129,7 @@ async function handleCreditsSpend(body:any): Promise<Response>{
   const mult = model.includes("sonnet")?10: model.includes("v4-pro")?6: model.includes("gpt-4o")?7: model.includes("r1")?6: model.includes("gemini")?4.8: model.includes("v4.1-flash")||model.includes("v4-flash")?1.2: model.includes("nemo")?1.0: model.includes("nemotron")?0.5: model.includes("qwen")||model.includes("coder")?1.5: model.includes("mistral")?3.5: 1.2;
   const spent_now=Math.max(1,Math.ceil((prompt_tokens+3.5*completion_tokens)/1000*mult));
   try{
-    const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/spend_user_credits`,{method:"POST",headers:{...sbHeaders(),prefer:"return=representation"},body:JSON.stringify({p_uid:uid,p_period:period,p_spent:spent_now})});
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/spend_user_credits`,{method:"POST",headers:{...sbHeaders(),prefer:"return=representation"},body:JSON.stringify({p_uid:uid,p_period:period,p_amount:spent_now})});
     const data=await r.json().catch(()=>null);
     const used=Number(data?.spent??spent_now);
     const limit=TIER_CREDITS[tier]??TIER_CREDITS.free;
@@ -257,7 +257,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
   for(let round=0;round<4;round++){
     let response:Response|null=null;
     for(const candidate of candidates){
-      const attempt=await requestToolModel({model:candidate,messages:conversation,tools:WEB_TOOL_SCHEMAS,tool_choice:forceSearch?{type:"function",function:{name:"web_search"}}:"auto",temperature:.3,max_tokens:2000});
+      const attempt=await requestToolModel({model:candidate,messages:conversation,tools:WEB_TOOL_SCHEMAS,tool_choice:(forceSearch&&round===0)?{type:"function",function:{name:"web_search"}}:"auto",temperature:.3,max_tokens:2000});
       if(attempt && attempt.ok){ response=attempt; model=candidate; break; }
     }
     if(!response) return events.length ? json(200,{content:lastToolText||"La herramienta se ejecutó, pero no se pudo redactar una respuesta final.",tool_events:events,images,model,tier,tools_available:true}) : null;
@@ -335,6 +335,9 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const needsWebSearch=/\b(busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
     const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,needsWebSearch);
     if(toolResponse) return toolResponse;
+    const toolInstructionIndex=messages.findIndex((item:any)=>item?.role==="system"&&item?.content===WEB_TOOL_INSTRUCTIONS);
+    if(toolInstructionIndex>=0) messages.splice(toolInstructionIndex,1);
+    messages.splice(1,0,{role:"system",content:"No hay llamadas de herramientas disponibles en este paso. Responde únicamente con texto natural, nunca con JSON ni llamadas de herramientas."});
     if(needsTool){
       const fallbackContext:string[]=[];
       const needsDate=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|what day|current date|current time)\b/i.test(latestRequest);
@@ -350,7 +353,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     }
   }
   // stream flag — always prefer stream for word-by-word (reduces perceived latency)
-  if(body?.stream || body?.xens_stream !== false) {
+  if(body?.tool_mode!==true && (body?.stream || body?.xens_stream !== false)) {
     // if caller wants streaming but didn't set stream, we upgrade to stream when not needing tools? keep tools streaming
     // For tool-calling, streaming still works with tool_calls chunked
     return handleChatStream(messages, body?.tools, tier, String(body?.model ?? ""));
