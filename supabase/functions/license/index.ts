@@ -201,8 +201,8 @@ function parseTextToolCall(content:string): {name:string; args:any}|null {
     try{
       const parsed=JSON.parse(candidate);
       const fn=typeof parsed?.function==="object" ? parsed.function : null;
-      const name=String(parsed?.tool??parsed?.name??fn?.name??(typeof parsed?.function==="string"?parsed.function:""));
-      const args=parsed?.arguments??parsed?.args??parsed?.parameters??fn?.arguments??{};
+      const name=String(parsed?.tool??parsed?.name??fn?.name??(typeof parsed?.function==="string"?parsed.function:Array.isArray(parsed?.queries)?"web_search":""));
+      const args=parsed?.arguments??parsed?.args??parsed?.parameters??fn?.arguments??(Array.isArray(parsed?.queries)?{query:parsed.queries.filter((q:any)=>typeof q==="string").join(" ")}:{});
       if(name && WEB_TOOL_SCHEMAS.some((entry:any)=>entry.function?.name===name)) return {name,args};
     }catch{}
   }
@@ -213,7 +213,7 @@ function isToolPayload(content:string): boolean {
     const raw=content.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");
     const parsed=JSON.parse(raw);
     if(!parsed || typeof parsed!=="object") return false;
-    return ["tool","name","function","arguments","args","parameters","query","tool_calls"].some(key=>Object.prototype.hasOwnProperty.call(parsed,key));
+    return ["tool","name","function","arguments","args","parameters","query","queries","search_query","search_queries","tool_calls"].some(key=>Object.prototype.hasOwnProperty.call(parsed,key));
   }catch{return false;}
 }
 function safeAssistantContent(content:string): string {
@@ -436,7 +436,22 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   }
   if(!r||r.status>=400) return json(502,{error:`Model error`,detail:lastErr});
   const msg=up?.choices?.[0]?.message??{};
-  const content=String(msg.content??"");
+  let content=String(msg.content??"");
+  const textualSearch=parseTextToolCall(content);
+  if(textualSearch?.name==="web_search"){
+    const queries=String(textualSearch.args?.query??"").split(/\s+\|\s+/).filter((q:string)=>q.trim()).slice(0,3);
+    const results:string[]=[];
+    for(const query of queries){ const result=await webContext(query.trim()); if(result) results.push(`Consulta: ${query}\n${result}`); }
+    if(results.length){
+      const toolContext=`El usuario pidió una búsqueda web. Se ejecutaron estas consultas reales; responde directamente a la petición usando únicamente estos resultados, con enlaces y sin mencionar JSON ni afirmar búsquedas adicionales:\n\n${results.join("\n\n")}`;
+      (llmPayload as any).messages=[{role:"system",content:toolContext},...messages.filter((item:any)=>!(item?.role==="system"&&item?.content===WEB_TOOL_INSTRUCTIONS))];
+      const key=upstream===POLLI_URL?POLLI_KEY:upstream.includes("mistral.ai")?MISTRAL_KEY:OPENROUTER_KEY;
+      if(key && await tryUpstream(upstream,key,model)) content=String(up?.choices?.[0]?.message?.content??"");
+      if(!content || isToolPayload(content)) content=results.join("\n\n");
+    }else{
+      content="No encontré resultados web verificables para esa consulta. Prueba con otros términos.";
+    }
+  }
   const searchDenial=/no (?:puedo|tengo|es posible)|no .*motor de b[uú]squeda|depende de .*cuenta|b[uú]squeda .*no est[aá] habilitada/i.test(content);
   if(wantsSearch && searchDenial){
     const safeContent=searchContext?`He realizado la búsqueda web. Estos son los resultados encontrados:\n\n${searchContext}`:"He ejecutado el motor de búsqueda web, pero no encontré resultados verificables para esa consulta.";
