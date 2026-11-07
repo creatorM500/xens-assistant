@@ -520,7 +520,13 @@ async function handleChatStream(messages:any, tools:any, tier:string, requestedM
     }
   }
   if(POLLI_KEY && tier!=="free" && tier!=="lite") cands.push({url:POLLI_URL,key:POLLI_KEY,mdl:POLLI_MODEL});
-  if(isMistral && MISTRAL_KEY) cands.push({url:"https://api.mistral.ai/v1/chat/completions",key:MISTRAL_KEY,mdl:base});
+  // Keep the streaming fallback aligned with handleChat: Free can fall back
+  // to Mistral even when its selected model is MiMo or another provider.
+  if(MISTRAL_KEY && (isMistral || tier==="free")) cands.push({
+    url:"https://api.mistral.ai/v1/chat/completions",
+    key:MISTRAL_KEY,
+    mdl:isMistral?base:"mistral-small-2506",
+  });
   for(const c of cands){
     const s=await tryStream(c.url,c.key,c.mdl,messages,tools);
     if(s) return s;
