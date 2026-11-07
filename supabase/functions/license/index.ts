@@ -53,6 +53,7 @@ const DEFAULT_MODELS: Record<string, string> = {
 // Compatibilidad: se conservan como fallback, no como primera elección.
 const LEGACY_MODEL_FALLBACKS = ["mistralai/mistral-nemo", "deepseek/deepseek-v4-pro", "anthropic/claude-sonnet-4"];
 const FREE_FALLBACKS = [
+  "nvidia/nemotron-3.5-super-vl:free",
   "z-ai/glm-5.2:free",
   "nvidia/nemotron-3-ultra-550b-a55b:free",
   "google/gemma-4-31b-it:free",
