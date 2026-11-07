@@ -440,7 +440,9 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
       up=await r.json().catch(()=>null);
       if(r.status<400){ model=mdl; upstream=url; return true; }
       lastErr=String(up?.error?.message??`status ${r.status}`);
-      return r.status===429;
+      // Any provider rejection (including HTTP 402 for an empty Pollinations
+      // balance) should advance to the next configured provider/model.
+      return false;
     }catch{ lastErr="upstream unreachable"; return false; }
   }
   let r:Response|null=null, up:any=null, lastErr="";
@@ -459,7 +461,6 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   if(!polliOk){
     for(const m of queue){
       if(await tryUpstream(OR_URL,OPENROUTER_KEY,m)) break;
-      if(r && (r as Response).status!==429 && !String(lastErr).includes("Provider returned")) break;
     }
   }
   if(!(r && (r as Response).status<400) && MISTRAL_KEY && (model.includes("mistral")||model.includes("codestral")||model.includes("pixtral")||tier==="free")){
