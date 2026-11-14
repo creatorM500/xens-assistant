@@ -282,8 +282,9 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
   const latestUser=String([...messages].reverse().find((item:any)=>item?.role==="user")?.content??"");
   const directEvents:any[]=[]; const directImages:string[]=[];
   const searchIntent=forceSearch;
-  if(!OPENROUTER_KEY) return null;
-  const conversation=[{role:"system",content:WEB_TOOL_INSTRUCTIONS},...messages.map(item=>({...item}))];
+  const rawConversation=[{role:"system",content:WEB_TOOL_INSTRUCTIONS},...messages.map(item=>({...item}))];
+  const systemMessages=rawConversation.filter((item:any)=>item?.role==="system").map((item:any)=>String(item.content??"").trim()).filter(Boolean);
+  const conversation=[{role:"system",content:systemMessages.join("\n\n")},...rawConversation.filter((item:any)=>item?.role!=="system")];
   const events:any[]=[]; const images:string[]=[]; let lastToolText="";
   const preferred=requestedModel||DEFAULT_MODELS[tier]||DEFAULT_MODELS.free;
   const candidates:Array<{url:string;key:string;model:string}> = [];
@@ -293,6 +294,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
       candidates.push({url:"https://openrouter.ai/api/v1/chat/completions",key:OPENROUTER_KEY,model});
     }
   }
+  if(!candidates.length) return null;
   let model=preferred;
   for(let round=0;round<4;round++){
     let response:Response|null=null;
