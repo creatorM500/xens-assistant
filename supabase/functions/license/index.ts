@@ -387,7 +387,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   const requestedZone=String(body?.client_timezone||"America/New_York");
   let referenceDate="";
   try{referenceDate=new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:requestedZone}).format(referenceNow);}catch{referenceDate=new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:"America/New_York"}).format(referenceNow);}
-  messages.splice(Math.max(1,messages.length-1),0,{role:"system",content:`REFERENCIA TEMPORAL ACTUAL Y OBLIGATORIA: ${referenceDate} (${requestedZone}). Esta fecha viene del reloj actual del cliente en esta solicitud. Nunca afirmes que hoy es 2025 ni que tu reloj interno marca otra fecha. Distingue fechas históricas de la fecha actual. En preguntas sobre lanzamientos, solo concluye lo respaldado por las fuentes adjuntas; ausencia de resultados no demuestra que algo no exista.`});
+  messages.splice(1,0,{role:"system",content:`REFERENCIA TEMPORAL ACTUAL Y OBLIGATORIA: ${referenceDate} (${requestedZone}). Esta fecha viene del reloj actual del cliente en esta solicitud. Nunca afirmes que hoy es 2025 ni que tu reloj interno marca otra fecha. Distingue fechas históricas de la fecha actual. En preguntas sobre lanzamientos, solo concluye lo respaldado por las fuentes adjuntas; ausencia de resultados no demuestra que algo no exista.`});
   let lic:any=null;
   const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
   if(caller.kind==="license"){
@@ -450,11 +450,18 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   model=String(body?.model??DEFAULT_MODELS[tier]??DEFAULT_MODELS.pro);
   if(!OPENROUTER_KEY && !RADEON_KEY && !MISTRAL_KEY) return json(500,{error:"Server has no configured model provider"});
   const llmPayload:Record<string,unknown>={model,messages,temperature:0.3,max_tokens:2000}; if(Array.isArray(body?.tools)&&body.tools.length>0) llmPayload.tools=body.tools;
+  const providerFailures:string[]=[];
+  const providerName=(url:string)=>url.includes("radeon-global")?"Radeon Cloud":url.includes("openrouter.ai")?"OpenRouter":url.includes("mistral.ai")?"Mistral":"Proveedor";
   async function tryUpstream(url:string,key:string,mdl:string):Promise<boolean>{
     (llmPayload as any).model=mdl;
-    (llmPayload as any).messages=selfModelQuestion
+    const sourceMessages=selfModelQuestion
       ? [{role:"system",content:`Si el usuario pregunta qué modelo eres, responde con transparencia: eres AINSLUP y en esta solicitud estás usando el modelo ${mdl} del proveedor ${url.includes("radeon-global")?"Radeon Cloud":url.includes("openrouter.ai")?"OpenRouter":"Mistral"}. No busques en la web para responder esto.`},...messages]
       : messages;
+    const systemMessages=sourceMessages.filter((item:any)=>item?.role==="system").map((item:any)=>String(item.content??"").trim()).filter(Boolean);
+    const conversationMessages=sourceMessages.filter((item:any)=>item?.role!=="system");
+    (llmPayload as any).messages=systemMessages.length
+      ? [{role:"system",content:systemMessages.join("\n\n")},...conversationMessages]
+      : conversationMessages;
     try{
       r=await fetch(url,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify(llmPayload)});
       up=await r.json().catch(()=>null);
@@ -464,15 +471,17 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
         const hasText=typeof message?.content==="string"&&message.content.trim().length>0;
         const hasTools=Array.isArray(message?.tool_calls)&&message.tool_calls.length>0;
         if(!hasText&&!hasTools){
-          lastErr="provider returned an empty response";
+          lastErr=`${providerName(url)} (${mdl}) devolvió una respuesta vacía`;
+          providerFailures.push(lastErr);
           return false;
         }
         model=mdl; upstream=url; return true;
       }
-      lastErr=String(up?.error?.message??`status ${r.status}`);
+      lastErr=`${providerName(url)} (${mdl}) HTTP ${r.status}${up?.error?.message?`: ${String(up.error.message).slice(0,180)}`:""}`;
+      providerFailures.push(lastErr);
       // Any provider rejection advances to the next configured provider/model.
       return false;
-    }catch{ lastErr="upstream unreachable"; return false; }
+    }catch{ lastErr=`${providerName(url)} (${mdl}) no respondió`; providerFailures.push(lastErr); return false; }
   }
   let r:Response|null=null, up:any=null, lastErr="";
   // Orden: Radeon en free/lite, luego OpenRouter y Mistral directo.
@@ -500,7 +509,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     await tryUpstream("https://api.mistral.ai/v1/chat/completions",MISTRAL_KEY,
       tier==="free" ? "mistral-small-2506" : model);
   }
-  if(!r||r.status>=400) return json(502,{error:`Model error`,detail:lastErr});
+  if(!r||r.status>=400) return json(502,{error:`Model error`,detail:providerFailures.join(" | ")||lastErr});
   const msg=up?.choices?.[0]?.message??{};
   let content=String(msg.content??"");
   const textualSearch=parseTextToolCall(content);
