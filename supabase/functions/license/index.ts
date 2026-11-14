@@ -443,7 +443,17 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     try{
       r=await fetch(url,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify(llmPayload)});
       up=await r.json().catch(()=>null);
-      if(r.status<400){ model=mdl; upstream=url; return true; }
+      if(r.status<400){
+        const choice=up?.choices?.[0];
+        const message=choice?.message;
+        const hasText=typeof message?.content==="string"&&message.content.trim().length>0;
+        const hasTools=Array.isArray(message?.tool_calls)&&message.tool_calls.length>0;
+        if(!hasText&&!hasTools){
+          lastErr="provider returned an empty response";
+          return false;
+        }
+        model=mdl; upstream=url; return true;
+      }
       lastErr=String(up?.error?.message??`status ${r.status}`);
       // Any provider rejection advances to the next configured provider/model.
       return false;
