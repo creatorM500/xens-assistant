@@ -81,14 +81,16 @@ export default function AppPage() {
     };
   }, []);
   function buildMemoryContext(query: string): string {
-    const terms = query.toLowerCase().split(/\W+/).filter((term:string)=>term.length>2);
+    const genericTerms = new Set(["que","qué","como","cómo","cual","cuál","quien","quién","eres","soy","modelo","model","usas","utilizas","hola","hey","dime","decir","puedes","podrias","podrías","por","favor","ayuda","ayudame","ayúdame","escribe","escribir","haz","hacer","responde","responder","what","which","who","are","you","your","can","could","please","tell","me"]);
+    const terms = query.toLowerCase().split(/\W+/).filter((term:string)=>term.length>2&&!genericTerms.has(term));
+    if (!terms.length) return "";
     const candidates = history.filter(item=>item.id!==conversationId && !item.archived).map(item=>{
       const saved = Array.isArray(item.data?.messages) ? item.data.messages : [];
       const searchable = `${item.title} ${saved.map(message=>(message.role==="user"?messageText(message.content):"")).join(" ")}`.toLowerCase();
       const score = terms.reduce((total:number, term:string)=>total+(searchable.includes(term)?1:0),0);
-      const recent = saved.slice(-4).map(message=>`${message.role === "user" ? "Usuario" : "AINSLUP"}: ${messageText(message.content).slice(0,500)}`).join("\n");
+      const recent = saved.slice(-2).map(message=>`${message.role === "user" ? "Usuario" : "AINSLUP"}: ${messageText(message.content).slice(0,320)}`).join("\n");
       return { item, score, recent };
-    }).filter(entry=>entry.recent && entry.score>0).sort((a,b)=>b.score-(a.score) || String(b.item.updated_at||"").localeCompare(String(a.item.updated_at||""))).slice(0,5);
+    }).filter(entry=>entry.recent && entry.score>0).sort((a,b)=>b.score-(a.score) || String(b.item.updated_at||"").localeCompare(String(a.item.updated_at||""))).slice(0,2);
     if (!candidates.length) return "";
     return `Memoria contextual de conversaciones anteriores. Úsala solo si es relevante para la petición actual; no inventes recuerdos ni menciones esta sección al usuario:\n${candidates.map(entry=>`Conversación «${entry.item.title}»:\n${entry.recent}`).join("\n\n")}`;
   }
