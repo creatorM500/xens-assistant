@@ -266,10 +266,10 @@ function cleanToolTrace(content:string): string {
 
 function calculateSafe(expression:string): string { const clean=expression.replace(/\^/g,"**").trim(); if(!clean || !/^[0-9+\-*/%().\s*]+$/.test(clean)) return "Solo se permiten números y operadores matemáticos básicos."; try { const result=Function(`"use strict"; return (${clean})`)(); if(typeof result!=="number" || !Number.isFinite(result)) return "El resultado no es finito."; return String(result); } catch { return "No se pudo evaluar la expresión."; } }
 async function executeWebTool(name:string,args:any):Promise<{text:string;image?:string}> { const searchQuery=String(args?.query??(Array.isArray(args?.queries)?args.queries[0]:"")); if(name==="web_search") return {text:(await webContext(searchQuery))||"No se encontraron resultados públicos."}; if(name==="calculator") return {text:calculateSafe(String(args?.expression??""))}; if(name==="get_current_time") { const zone=String(args?.timezone||"America/New_York"); try { return {text:new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:zone}).format(new Date())}; } catch { return {text:new Date().toISOString()}; } } if(name==="generate_image") { const account=Deno.env.get("CLOUDFLARE_ACCOUNT_ID")??""; const token=Deno.env.get("CLOUDFLARE_API_TOKEN")??""; if(!account||!token) return {text:"La generación de imágenes todavía no está configurada en AINSLUP Web."}; const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/ai/run/@cf/black-forest-labs/flux-1-schnell`,{method:"POST",headers:{authorization:`Bearer ${token}`,"content-type":"application/json"},body:JSON.stringify({prompt:String(args?.prompt??""),steps:4})}); const data=await r.json().catch(()=>({})); if(!r.ok||!data?.result?.image) return {text:"No se pudo generar la imagen en este momento."}; return {text:"Imagen generada correctamente. Preséntala al usuario y ofrece hacer cambios.",image:`data:image/jpeg;base64,${data.result.image}`}; } return {text:`Herramienta no disponible: ${name}`}; }
-async function requestToolModel(payload:any):Promise<Response|null>{
+async function requestToolModel(url:string,key:string,payload:any):Promise<Response|null>{
   const controller=new AbortController(); const timeout=setTimeout(()=>controller.abort(),20000);
   try{
-    return await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{authorization:`Bearer ${OPENROUTER_KEY}`,"content-type":"application/json"},body:JSON.stringify(payload),signal:controller.signal});
+    return await fetch(url,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify(payload),signal:controller.signal});
   }catch{return null;} finally { clearTimeout(timeout); }
 }
 const WEB_TOOL_INSTRUCTIONS = `Herramientas cloud disponibles en AINSLUP Web:
@@ -286,13 +286,26 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
   const conversation=[{role:"system",content:WEB_TOOL_INSTRUCTIONS},...messages.map(item=>({...item}))];
   const events:any[]=[]; const images:string[]=[]; let lastToolText="";
   const preferred=requestedModel||DEFAULT_MODELS[tier]||DEFAULT_MODELS.free;
-  const candidates=[preferred,"google/gemini-2.0-flash-001","qwen/qwen-2.5-coder-32b-instruct","deepseek/deepseek-v4.1-flash"].filter((model,index,list)=>model&&list.indexOf(model)===index);
+  const candidates:Array<{url:string;key:string;model:string}> = [];
+  if(RADEON_KEY) candidates.push({url:RADEON_URL,key:RADEON_KEY,model:RADEON_MODEL});
+  if(OPENROUTER_KEY){
+    for(const model of [preferred,"google/gemini-2.0-flash-001","qwen/qwen-2.5-coder-32b-instruct","deepseek/deepseek-v4.1-flash"].filter((model,index,list)=>model&&list.indexOf(model)===index)){
+      candidates.push({url:"https://openrouter.ai/api/v1/chat/completions",key:OPENROUTER_KEY,model});
+    }
+  }
   let model=preferred;
   for(let round=0;round<4;round++){
     let response:Response|null=null;
     for(const candidate of candidates){
-      const attempt=await requestToolModel({model:candidate,messages:conversation,tools:WEB_TOOL_SCHEMAS,tool_choice:(forceSearch&&round===0)?{type:"function",function:{name:"web_search"}}:"auto",temperature:.3,max_tokens:2000});
-      if(attempt && attempt.ok){ response=attempt; model=candidate; break; }
+      const attempt=await requestToolModel(candidate.url,candidate.key,{model:candidate.model,messages:conversation,tools:WEB_TOOL_SCHEMAS,tool_choice:(forceSearch&&round===0)?{type:"function",function:{name:"web_search"}}:"auto",temperature:.3,max_tokens:2000});
+      if(attempt && attempt.ok){
+        const preview=await attempt.clone().json().catch(()=>null);
+        const previewMessage=preview?.choices?.[0]?.message;
+        const hasText=typeof previewMessage?.content==="string"&&previewMessage.content.trim().length>0;
+        const hasTools=Array.isArray(previewMessage?.tool_calls)&&previewMessage.tool_calls.length>0;
+        if(!hasText&&!hasTools) continue;
+        response=attempt; model=candidate.model; break;
+      }
     }
     if(!response) return events.length ? json(200,{content:lastToolText||"La herramienta se ejecutó, pero no se pudo redactar una respuesta final.",tool_events:events,images,model,tier,tools_available:true}) : null;
     const data=await response.json().catch(()=>({}));
