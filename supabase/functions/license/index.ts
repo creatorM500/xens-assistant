@@ -403,8 +403,10 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const needsTool=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
     const selfModelQuestion=/\b(?:qu[eé]\s+modelo\s+(?:eres|usas|utilizas)|(?:qu[eé]\s+)?modelo\s+(?:eres|usas|utilizas)|what\s+model\s+are\s+you)\b/i.test(latestRequest);
     const needsWebSearch=!selfModelQuestion&&/\b(busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
-    const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,needsWebSearch);
-    if(toolResponse) return toolResponse;
+    if(needsWebSearch||needsTool){
+      const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,needsWebSearch);
+      if(toolResponse) return toolResponse;
+    }
     const toolInstructionIndex=messages.findIndex((item:any)=>item?.role==="system"&&item?.content===WEB_TOOL_INSTRUCTIONS);
     if(toolInstructionIndex>=0) messages.splice(toolInstructionIndex,1);
     messages.splice(1,0,{role:"system",content:"No hay llamadas de herramientas disponibles en este paso. Responde únicamente con texto natural, nunca con JSON ni llamadas de herramientas."});
