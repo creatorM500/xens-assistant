@@ -22,7 +22,7 @@ const OPENROUTER_KEY = Deno.env.get("XENS_OPENROUTER_KEY") ?? "";
 // Radeon Cloud: primero en free/lite y fallback en el resto.
 const RADEON_KEY = Deno.env.get("XENS_RADEON_KEY") ?? "";
 const RADEON_URL = "https://radeon-global.anruicloud.com/api/v1/chat/completions";
-const RADEON_MODEL = "DeepSeek-V4.1-Flash";
+const RADEON_MODEL = "Qwen3.8-27B";
 const FREE_CHAT_CAP = parseInt(Deno.env.get("XENS_FREE_CHAT_CAP") ?? "300", 10) || 300;
 const PAYPAL_CLIENT_ID = Deno.env.get("XENS_PAYPAL_CLIENT_ID") ?? "";
 const PAYPAL_CLIENT_SECRET = Deno.env.get("XENS_PAYPAL_CLIENT_SECRET") ?? "";
@@ -36,7 +36,7 @@ const TIER_CREDITS: Record<string, number> = { free: 5000, lite: 15000, pro: 350
 // Facturación unificada: todo por OpenRouter (un solo pago).
 // MISTRAL_KEY queda solo como último recurso si OpenRouter cae.
 const XENS_ALIAS_MAP: Record<string, {provider:string, model:string}> = {
-  Flash: {provider:"openrouter", model:"xiaomi/mimo-v2.6-flash"},
+  Flash: {provider:"radeon", model:"Qwen3.8-27B"},
   Core: {provider:"openrouter", model:"deepseek/deepseek-v4.1-flash"},
   Think: {provider:"openrouter", model:"xiaomi/mimo-v2.6-flash"},
   Code: {provider:"openrouter", model:"qwen/qwen-2.5-coder-32b-instruct"},
@@ -45,8 +45,8 @@ const XENS_ALIAS_MAP: Record<string, {provider:string, model:string}> = {
   Ultra: {provider:"openrouter", model:"minimax/minimax-m3.1-flash"},
 };
 const DEFAULT_MODELS: Record<string, string> = {
-  free: "xiaomi/mimo-v2.6-flash",
-  lite: "xiaomi/mimo-v2.6-flash",
+  free: "Qwen3.8-27B",
+  lite: "Qwen3.8-27B",
   pro: "deepseek/deepseek-v4.1-flash",
   premium: "minimax/minimax-m3.1-flash",
 };
