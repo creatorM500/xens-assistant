@@ -345,14 +345,15 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   const latest=String(userTexts[userTexts.length-1]??"");
   const assistantTexts=messages.filter((item:any)=>item?.role==="assistant").slice(-4).map((item:any)=>String(item.content??""));
   const affirmativeFollowup=/^\s*(s[ií]|claro|por supuesto|sí,? por favor|si,? por favor|adelante|hazlo|contin[uú]a|dale|verifica|comprueba|confirma|yes|please|go ahead)[.!\s]*$/i.test(latest);
-  const searchPattern=/\b(busca(?:r)?|b[uú]squeda|internet|web|invest[ií]ga(?:r|me)?|invest[ií]game|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|modelo|actual|ahora|hoy|\d{4})\b/i;
+  const selfModelQuestion=/\b(?:qu[eé]\s+modelo\s+(?:eres|usas|utilizas)|(?:qu[eé]\s+)?modelo\s+(?:eres|usas|utilizas)|what\s+model\s+are\s+you)\b/i.test(latest);
+  const searchPattern=/\b(busca(?:r)?|b[uú]squeda|internet|web|invest[ií]ga(?:r|me)?|invest[ií]game|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotizaci[oó]n|actual|ahora|hoy|\d{4})\b/i;
   const previousSearch=userTexts.slice(0,-1).reverse().find((value:string)=>searchPattern.test(value));
   const datePattern=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|current date|current time|what day|20\d{2})\b/i;
   const assistantWasCheckingDate=assistantTexts.some((value:string)=>/fecha|hora|date|time|verific|comprob/i.test(value));
   const dateFollowup=affirmativeFollowup&&assistantWasCheckingDate;
   const searchFollowup=affirmativeFollowup&&!dateFollowup&&Boolean(previousSearch)&&searchPattern.test(previousSearch||"");
   const searchQuery=searchFollowup?String(previousSearch):latest;
-  const wantsSearch=searchPattern.test(latest)||searchFollowup;
+  const wantsSearch=!selfModelQuestion&&(searchPattern.test(latest)||searchFollowup);
   const needsCurrentDate=datePattern.test(latest)||dateFollowup;
   let searchContext="";
   if(wantsSearch) searchContext=await webContext(searchQuery);
@@ -400,7 +401,8 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS});
     const latestRequest=String(messages[messages.length-1]?.content??"");
     const needsTool=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
-    const needsWebSearch=/\b(busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
+    const selfModelQuestion=/\b(?:qu[eé]\s+modelo\s+(?:eres|usas|utilizas)|(?:qu[eé]\s+)?modelo\s+(?:eres|usas|utilizas)|what\s+model\s+are\s+you)\b/i.test(latestRequest);
+    const needsWebSearch=!selfModelQuestion&&/\b(busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
     const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,needsWebSearch);
     if(toolResponse) return toolResponse;
     const toolInstructionIndex=messages.findIndex((item:any)=>item?.role==="system"&&item?.content===WEB_TOOL_INSTRUCTIONS);
@@ -435,6 +437,9 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   const llmPayload:Record<string,unknown>={model,messages,temperature:0.3,max_tokens:2000}; if(Array.isArray(body?.tools)&&body.tools.length>0) llmPayload.tools=body.tools;
   async function tryUpstream(url:string,key:string,mdl:string):Promise<boolean>{
     (llmPayload as any).model=mdl;
+    (llmPayload as any).messages=selfModelQuestion
+      ? [{role:"system",content:`Si el usuario pregunta qué modelo eres, responde con transparencia: eres AINSLUP y en esta solicitud estás usando el modelo ${mdl} del proveedor ${url.includes("radeon-global")?"Radeon Cloud":url.includes("openrouter.ai")?"OpenRouter":"Mistral"}. No busques en la web para responder esto.`},...messages]
+      : messages;
     try{
       r=await fetch(url,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify(llmPayload)});
       up=await r.json().catch(()=>null);
