@@ -19,10 +19,10 @@ const SERVICE_ROLE = edgeSecretKey();
 const TOKEN_SECRET = Deno.env.get("XENS_TOKEN_SECRET") ?? "xens-edge-token-secret";
 const MISTRAL_KEY = Deno.env.get("XENS_MISTRAL_KEY") ?? "";
 const OPENROUTER_KEY = Deno.env.get("XENS_OPENROUTER_KEY") ?? "";
-// Segundo cerebro gratis (Pollinations): primero en free/lite, fallback en el resto.
-const POLLI_KEY = Deno.env.get("XENS_POLLI_KEY") ?? "";
-const POLLI_URL = "https://gen.pollinations.ai/v1/chat/completions";
-const POLLI_MODEL = "nvidia/nemotron-3-ultra";
+// Radeon Cloud: primero en free/lite y fallback en el resto.
+const RADEON_KEY = Deno.env.get("XENS_RADEON_KEY") ?? "";
+const RADEON_URL = "https://radeon-global.anruicloud.com/api/v1/chat/completions";
+const RADEON_MODEL = "DeepSeek-V4.1-Flash";
 const FREE_CHAT_CAP = parseInt(Deno.env.get("XENS_FREE_CHAT_CAP") ?? "300", 10) || 300;
 const PAYPAL_CLIENT_ID = Deno.env.get("XENS_PAYPAL_CLIENT_ID") ?? "";
 const PAYPAL_CLIENT_SECRET = Deno.env.get("XENS_PAYPAL_CLIENT_SECRET") ?? "";
@@ -431,7 +431,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   const OR_URL="https://openrouter.ai/api/v1/chat/completions";
   let upstream:string=OR_URL, apiKey:string=OPENROUTER_KEY, model:string;
   model=String(body?.model??DEFAULT_MODELS[tier]??DEFAULT_MODELS.pro);
-  if(!OPENROUTER_KEY && !POLLI_KEY && !MISTRAL_KEY) return json(500,{error:"Server has no configured model provider"});
+  if(!OPENROUTER_KEY && !RADEON_KEY && !MISTRAL_KEY) return json(500,{error:"Server has no configured model provider"});
   const llmPayload:Record<string,unknown>={model,messages,temperature:0.3,max_tokens:2000}; if(Array.isArray(body?.tools)&&body.tools.length>0) llmPayload.tools=body.tools;
   async function tryUpstream(url:string,key:string,mdl:string):Promise<boolean>{
     (llmPayload as any).model=mdl;
@@ -440,13 +440,12 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
       up=await r.json().catch(()=>null);
       if(r.status<400){ model=mdl; upstream=url; return true; }
       lastErr=String(up?.error?.message??`status ${r.status}`);
-      // Any provider rejection (including HTTP 402 for an empty Pollinations
-      // balance) should advance to the next configured provider/model.
+      // Any provider rejection advances to the next configured provider/model.
       return false;
     }catch{ lastErr="upstream unreachable"; return false; }
   }
   let r:Response|null=null, up:any=null, lastErr="";
-  // Orden: modelo pedido -> barato pago del mismo uso -> free -> Mistral directo.
+  // Orden: Radeon en free/lite, luego OpenRouter y Mistral directo.
   const paidFallback = model.includes("sonnet") ? "anthropic/claude-sonnet-4"
     : model.includes("gemini") ? "google/gemini-2.0-flash-001"
     : model.includes("coder") || model.includes("qwen") ? "qwen/qwen-2.5-coder-32b-instruct"
@@ -455,13 +454,17 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   const queue = [model];
   if(paidFallback!==model) queue.push(paidFallback);
   for(const m of FREE_FALLBACKS){ if(m!==model && m!==paidFallback) queue.push(m); }
-  // Segundo cerebro gratis primero en free/lite (cuesta ~cero).
-  let polliOk = false;
-  if((tier==="free"||tier==="lite") && POLLI_KEY){ polliOk = await tryUpstream(POLLI_URL,POLLI_KEY,POLLI_MODEL); }
-  if(!polliOk){
+  let radeonOk = false;
+  if((tier==="free"||tier==="lite") && RADEON_KEY){
+    radeonOk = await tryUpstream(RADEON_URL,RADEON_KEY,RADEON_MODEL);
+  }
+  if(!radeonOk && OPENROUTER_KEY){
     for(const m of queue){
       if(await tryUpstream(OR_URL,OPENROUTER_KEY,m)) break;
     }
+  }
+  if(!(r && r.status<400) && RADEON_KEY){
+    await tryUpstream(RADEON_URL,RADEON_KEY,RADEON_MODEL);
   }
   if(!(r && (r as Response).status<400) && MISTRAL_KEY && (model.includes("mistral")||model.includes("codestral")||model.includes("pixtral")||tier==="free")){
     await tryUpstream("https://api.mistral.ai/v1/chat/completions",MISTRAL_KEY,
@@ -478,7 +481,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     if(results.length){
       const toolContext=`El usuario pidió una búsqueda web. Se ejecutaron estas consultas reales; responde directamente a la petición usando únicamente estos resultados, con enlaces y sin mencionar JSON ni afirmar búsquedas adicionales:\n\n${results.join("\n\n")}`;
       (llmPayload as any).messages=[{role:"system",content:toolContext},...messages.filter((item:any)=>!(item?.role==="system"&&item?.content===WEB_TOOL_INSTRUCTIONS))];
-      const key=upstream===POLLI_URL?POLLI_KEY:upstream.includes("mistral.ai")?MISTRAL_KEY:OPENROUTER_KEY;
+       const key=upstream===RADEON_URL?RADEON_KEY:upstream.includes("mistral.ai")?MISTRAL_KEY:OPENROUTER_KEY;
       if(key && await tryUpstream(upstream,key,model)) content=String(up?.choices?.[0]?.message?.content??"");
       if(!content || isToolPayload(content)) content=results.join("\n\n");
     }else{
@@ -508,10 +511,10 @@ async function tryStream(url:string,key:string,mdl:string,messages:any,tools:any
 async function handleChatStream(messages:any, tools:any, tier:string, requestedModel:string=""): Promise<Response>{
   const base = requestedModel || (DEFAULT_MODELS[tier] ?? DEFAULT_MODELS.free);
   const isMistral = base.includes("mistral") || base.includes("codestral") || base.includes("pixtral");
-  // OpenRouter primero (facturación unificada); Pollinations gratis primero en
-  // free/lite y como fallback previo a Mistral en el resto; Mistral al final.
+  // Radeon primero en free/lite; OpenRouter sigue como proveedor principal del
+  // resto y Radeon queda como fallback antes de Mistral.
   const cands: Array<{url:string,key:string,mdl:string}> = [];
-  if((tier==="free"||tier==="lite") && POLLI_KEY) cands.push({url:POLLI_URL,key:POLLI_KEY,mdl:POLLI_MODEL});
+  if((tier==="free"||tier==="lite") && RADEON_KEY) cands.push({url:RADEON_URL,key:RADEON_KEY,mdl:RADEON_MODEL});
   if(OPENROUTER_KEY) cands.push({url:"https://openrouter.ai/api/v1/chat/completions",key:OPENROUTER_KEY,mdl:base});
   if(OPENROUTER_KEY){
     for(const m of ["deepseek/deepseek-v4.1-flash", ...FREE_FALLBACKS]){
@@ -519,7 +522,7 @@ async function handleChatStream(messages:any, tools:any, tier:string, requestedM
       cands.push({url:"https://openrouter.ai/api/v1/chat/completions",key:OPENROUTER_KEY,mdl:m});
     }
   }
-  if(POLLI_KEY && tier!=="free" && tier!=="lite") cands.push({url:POLLI_URL,key:POLLI_KEY,mdl:POLLI_MODEL});
+  if(RADEON_KEY && tier!=="free" && tier!=="lite") cands.push({url:RADEON_URL,key:RADEON_KEY,mdl:RADEON_MODEL});
   // Keep the streaming fallback aligned with handleChat: Free can fall back
   // to Mistral even when its selected model is MiMo or another provider.
   if(MISTRAL_KEY && (isMistral || tier==="free")) cands.push({
