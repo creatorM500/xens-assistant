@@ -280,7 +280,9 @@ async def run_tool_loop(messages, max_iterations=5, tier="free", uid=None,
     tier = tier_config.effective_tier(tier or "free")
 
     if charge and (uid or tier_config.is_beta()):
-        allowed, remaining, limit, reset_sec = credits.check(tier, uid=uid)
+        allowed, remaining, limit, reset_sec = credits.check(
+            tier, uid=uid, token=account_token
+        )
         if not allowed:
             msg = (
                 f"Alcanzaste el límite de Ainslup Credits de tu plan "

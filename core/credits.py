@@ -159,21 +159,30 @@ class CreditLedger:
         self._ensure_month()
         return max(0, self.limit(tier) - self._spent.get(self._key(tier, uid), 0))
 
-    def check(self, tier: str, uid: Optional[str] = None, need: int = 1) -> tuple[bool, int, int, Optional[int]]:
-        # Servidor autoritativo solo si responde; si no, manda el ledger
-        # local (el producto funciona sin servidor).
+    def check(self, tier: str, uid: Optional[str] = None, need: int = 1,
+              token: str = "") -> tuple[bool, int, int, Optional[int]]:
         if uid:
             url = self._server_url()
-            if url:
+            if url and token:
                 try:
                     import httpx
-                    r = httpx.post(f"{url}/api/credits-check", json={"uid": uid, "tier": tier, "need": need}, timeout=8)
+                    r = httpx.post(
+                        f"{url}/api/credits-check",
+                        json={"need": need},
+                        headers={"Authorization": f"Bearer {token}"},
+                        timeout=8,
+                    )
                     if r.status_code == 200:
                         d = r.json()
                         return bool(d.get("allowed", True)), int(d.get("remaining", 0)), int(d.get("limit", self.limit(tier))), d.get("reset_seconds", self._seconds_until_reset())
                     logger.warning("Credits server check failed %s %s", r.status_code, r.text[:200])
                 except Exception as e:
-                    logger.warning("Credits server unreachable, usando ledger local: %s", e)
+                    logger.warning("Credits server unreachable: %s", e)
+                # Cuenta online: jamás conceder acceso usando el ledger local.
+                return False, 0, self.limit(tier), self._seconds_until_reset()
+            if url:
+                logger.error("No account token available for authoritative credit check")
+                return False, 0, self.limit(tier), self._seconds_until_reset()
         return self._check_local(tier, uid, need)
 
     def _check_local(self, tier: str, uid: Optional[str], need: int) -> tuple[bool, int, int, Optional[int]]:
@@ -201,17 +210,8 @@ class CreditLedger:
         El ledger local SIEMPRE registra (funciona sin servidor); si hay
         uid y servidor, además lo intenta notificar (best effort).
         """
-        if uid:
-            url = self._server_url()
-            if url:
-                try:
-                    import httpx
-                    payload = {"uid": uid, "tier": tier, "model": model, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}
-                    if usage:
-                        payload["usage"] = usage
-                    httpx.post(f"{url}/api/credits-spend", json=payload, timeout=8)
-                except Exception as e:
-                    logger.warning("Credits server spend unreachable, solo local: %s", e)
+        # Para cuentas online el Edge factura usando el usage del proveedor;
+        # nunca enviamos al servidor el uid, modelo o número de tokens del cliente.
         self._ensure_month()
         if usage:
             prompt_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)

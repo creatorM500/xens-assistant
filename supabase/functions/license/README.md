@@ -9,8 +9,10 @@ nunca ve las API keys de IA: solo recibe un token y el servidor llama al modelo.
 |-----------|-----------------|-------------------------------|------------------------------------|
 | POST `/api/activate` | -     | `{"serial": "XENS-..."}`      | `{"token","tier","expires_at"}`    |
 | GET `/api/me`       | Bearer token    | -                             | `{"tier","expires_at"}`            |
-| POST `/api/chat`    | Bearer token    | `{"messages","tools","tier"}` | `{"content","tool_calls","model"}` |
-| POST `/api/deactivate` | -            | `{"serial"}`                  | `{"status":"ok",...}`              |
+| POST `/api/chat`    | Bearer token    | `{"messages","tools"}` | `{"content","tool_calls","model"}` |
+| POST `/api/deactivate` | Bearer license token | - | `{"status":"ok",...}` |
+| POST `/api/credits-check` | Bearer account token | `{"need":1}` | authoritative server balance |
+| POST `/api/credits-spend` | disabled | - | `410`; chats are billed server-side |
 
 ## Dispatch de modelos
 
@@ -18,6 +20,11 @@ nunca ve las API keys de IA: solo recibe un token y el servidor llama al modelo.
   `XENS_FREE_CHAT_CAP` chats/mes por licencia (tabla `usage`).
 - **pro / premium** → OpenRouter (`mistralai/mistral-large-latest`), modelo
   sobreescribible por request con `{"model": "..."}`.
+
+Credit checks and chat billing derive the account UID and active plan from
+Supabase Auth and the `subscriptions` table. Never pass an account UID or usage
+from the client as authority. The Edge reserves quota atomically before chat,
+then tops it up using upstream provider usage where available.
 
 ## Deploy
 

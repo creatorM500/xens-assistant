@@ -58,6 +58,24 @@ def test_every_rpc_has_migration():
         assert rpc in mig_text, f"RPC {rpc} sin migración"
 
 
+def test_security_hardening_contract():
+    src = _read(EDGE)
+    migration = "\n".join(p.read_text(encoding="utf-8") for p in MIGR.glob("*.sql"))
+    assert 'path==="credits-spend"' in src
+    assert 'return json(410' in src
+    assert "try_spend_user_credits" in src
+    assert "try_reserve_free_chat" in src
+    assert "record_usage_tokens" in src
+    assert "XENS_TOKEN_SECRET must be configured" in src
+    assert "reserveFreeLicenseChat" in src
+    assert "messages.length>100" in src
+    assert "revoke all on function public.try_spend_user_credits" in migration
+    assert "revoke all on function public.try_reserve_free_chat" in migration
+    assert "revoke all on function public.take_provision_slot" in migration
+    assert "Account authentication required" in src
+    assert "License authentication required" in src
+
+
 def test_webhook_supports_all_paid_plans_and_tier_sync():
     src = _read(WEBHOOK)
     assert "PLAN_LITE" in src

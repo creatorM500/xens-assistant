@@ -16,14 +16,15 @@ function edgeSecretKey(): string {
   return Deno.env.get("SUPABASE_SECRET_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 }
 const SERVICE_ROLE = edgeSecretKey();
-const TOKEN_SECRET = Deno.env.get("XENS_TOKEN_SECRET") ?? "xens-edge-token-secret";
+const TOKEN_SECRET = Deno.env.get("XENS_TOKEN_SECRET") ?? "";
+if (TOKEN_SECRET.length < 32) throw new Error("XENS_TOKEN_SECRET must be configured with at least 32 characters");
 const MISTRAL_KEY = Deno.env.get("XENS_MISTRAL_KEY") ?? "";
 const OPENROUTER_KEY = Deno.env.get("XENS_OPENROUTER_KEY") ?? "";
 // Radeon Cloud: primero en free/lite y fallback en el resto.
 const RADEON_KEY = Deno.env.get("XENS_RADEON_KEY") ?? "";
 const RADEON_URL = "https://radeon-global.anruicloud.com/api/v1/chat/completions";
 const RADEON_MODEL = "Qwen3.8-27B";
-const FREE_CHAT_CAP = parseInt(Deno.env.get("XENS_FREE_CHAT_CAP") ?? "300", 10) || 300;
+const FREE_CHAT_CAP = Math.max(1,Math.min(1_000_000,parseInt(Deno.env.get("XENS_FREE_CHAT_CAP") ?? "300", 10) || 300));
 const PAYPAL_CLIENT_ID = Deno.env.get("XENS_PAYPAL_CLIENT_ID") ?? "";
 const PAYPAL_CLIENT_SECRET = Deno.env.get("XENS_PAYPAL_CLIENT_SECRET") ?? "";
 const PAYPAL_MODE = Deno.env.get("XENS_PAYPAL_MODE") === "live" ? "live" : "sandbox";
@@ -73,12 +74,26 @@ function b64u(b: Uint8Array): string { return btoa(String.fromCharCode(...b)).re
 function b64uDecode(s: string): Uint8Array { let t = s.replace(/-/g, "+").replace(/_/g, "/"); while (t.length % 4) t += "="; const bin = atob(t); const out = new Uint8Array(bin.length); for (let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i); return out; }
 async function hmacSign(data: string): Promise<Uint8Array> { const key = await crypto.subtle.importKey("raw", enc.encode(TOKEN_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]); return new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(data))); }
 async function makeToken(payload: Record<string, unknown>): Promise<string> { const h=b64u(enc.encode(JSON.stringify({alg:"HS256",typ:"JWT"}))); const p=b64u(enc.encode(JSON.stringify(payload))); const sig=b64u(await hmacSign(`${h}.${p}`)); return `${h}.${p}.${sig}`; }
-async function verifyToken(token: string): Promise<Record<string, unknown>|null> { try{ const [h,p,s]=token.split("."); if(!h||!p||!s) return null; if(b64u(await hmacSign(`${h}.${p}`))!==s) return null; const payload=JSON.parse(new TextDecoder().decode(b64uDecode(p))); if(typeof payload.exp==="number" && payload.exp*1000<Date.now()) return null; return payload; }catch{ return null; } }
+async function verifyToken(token: string): Promise<Record<string, unknown>|null> {
+  try {
+    const [h,p,s,...extra]=token.split(".");
+    if(!h||!p||!s||extra.length)return null;
+    const header=JSON.parse(new TextDecoder().decode(b64uDecode(h)));
+    if(header?.alg!=="HS256"||header?.typ!=="JWT")return null;
+    const key=await crypto.subtle.importKey("raw",enc.encode(TOKEN_SECRET),{name:"HMAC",hash:"SHA-256"},false,["verify"]);
+    if(!await crypto.subtle.verify("HMAC",key,b64uDecode(s),enc.encode(`${h}.${p}`)))return null;
+    const payload=JSON.parse(new TextDecoder().decode(b64uDecode(p)));
+    if(payload?.iss!=="xens"||typeof payload?.sub!=="string"||!payload.sub)return null;
+    if(!Number.isFinite(payload?.exp)||payload.exp*1000<=Date.now())return null;
+    if(payload.iat!==undefined&&(!Number.isFinite(payload.iat)||payload.iat*1000>Date.now()+60_000))return null;
+    if(typeof payload.tier!=="string")return null;
+    return payload;
+  }catch{return null;}
+}
 
 function sbHeaders(): Record<string,string>{ return { apikey: SERVICE_ROLE, authorization: `Bearer ${SERVICE_ROLE}`, "content-type":"application/json" }; }
 async function rpc(name:string,args:Record<string,unknown>): Promise<{status:number;data:any}>{ const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`,{method:"POST",headers:{...sbHeaders(),prefer:"return=representation"},body:JSON.stringify(args)}); return {status:r.status,data:await r.json().catch(()=>null)}; }
 async function fetchLicense(serial:string):Promise<any>{ const r=await fetch(`${SUPABASE_URL}/rest/v1/licenses?select=id,tier,revoked,expires_at&key=eq.${encodeURIComponent(serial)}&limit=1`,{headers:sbHeaders()}); const rows=await r.json().catch(()=>null); return Array.isArray(rows)?(rows[0]??null):null; }
-async function fetchUsage(licenseId:string,period:string):Promise<any>{ const r=await fetch(`${SUPABASE_URL}/rest/v1/usage?select=chats&license_id=eq.${licenseId}&period=eq.${period}&limit=1`,{headers:sbHeaders()}); const rows=await r.json().catch(()=>null); return Array.isArray(rows)?(rows[0]??null):null; }
 
 async function handleActivate(req: Request, body:any): Promise<Response>{
   const serial=String(body?.serial??"").trim().toUpperCase(); if(!serial) return json(400,{error:"serial required"});
@@ -89,10 +104,27 @@ async function handleActivate(req: Request, body:any): Promise<Response>{
   const token=await makeToken({sub:serial,tier,exp:exp||Math.floor(Date.now()/1000)+365*86400,iss:"xens",iat:Math.floor(Date.now()/1000)});
   return json(200,{token,tier,expires_at:exp||undefined});
 }
-async function handleMe(auth:string): Promise<Response>{ const payload=await requireAuth(auth); if(payload instanceof Response) return payload; const tier=String(payload.tier??"free").toLowerCase(); const credits=await accountCredits(String(payload.uid),tier); return json(200,{tier,expires_at:Number(payload.exp??0),online:true,credits_spent:credits.limit-credits.remaining,credits_limit:credits.limit,credits_remaining:credits.remaining}); }
+async function handleMe(auth:string): Promise<Response>{
+  const caller=await resolveAuth(auth);
+  if(caller instanceof Response)return caller;
+  if(caller.kind==="license"){
+    const license=await fetchLicense(caller.sub);
+    if(!license||license.revoked||(license.expires_at&&Date.parse(license.expires_at)<Date.now()))return json(401,{error:"License invalid, expired or revoked"});
+    const tier=String(license.tier??"free").toLowerCase();
+    return json(200,{tier,expires_at:license.expires_at?Math.floor(Date.parse(license.expires_at)/1000):Number.MAX_SAFE_INTEGER,online:true,credits_limit:TIER_CREDITS[tier]??TIER_CREDITS.free});
+  }
+  const credits=await accountCredits(caller.uid,caller.tier);
+  if(!credits.available)return json(503,{error:"Credit service temporarily unavailable"});
+  return json(200,{tier:caller.tier,online:true,credits_spent:credits.limit-credits.remaining,credits_limit:credits.limit,credits_remaining:credits.remaining});
+}
 async function handleProvisionFree(req: Request, body:any): Promise<Response>{
   // Cero-config para el consumidor: crea (o reutiliza) la licencia Free
   // lifetime de esta máquina. Sin serial, sin API keys.
+  const ipHash=await provisionIpHash(req);
+  if(!ipHash)return json(503,{error:"Unable to verify request origin"});
+  const rate=await rpc("take_provision_slot",{p_ip_hash:ipHash,p_max_attempts:20,p_window_seconds:86400});
+  if(rate.status!==200)return json(503,{error:"Free provisioning is temporarily unavailable"});
+  if(rate.data!==true)return json(429,{error:"Free provisioning rate limit reached"});
   const device=await deviceFingerprint(req);
   const machine=String(body?.machine_id??"").trim().slice(0,64);
   const {status,data}=await rpc("provision_free_license",{p_device_id:device,p_machine_id:machine||device});
@@ -105,37 +137,20 @@ async function handleProvisionFree(req: Request, body:any): Promise<Response>{
   return json(200,{token,tier,expires_at:exp||undefined,provisioned:true});
 }
 
-async function handleCreditsCheck(body:any): Promise<Response>{
-  const uid=String(body?.uid??"").trim(); const tier=String(body?.tier??"free").toLowerCase();
-  if(!uid) return json(400,{error:"uid required"});
-  const limit=TIER_CREDITS[tier]??TIER_CREDITS.free;
-  const period=new Date().toISOString().slice(0,7);
-  try{
-    const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_user_credits`,{method:"POST",headers:sbHeaders(),body:JSON.stringify({p_uid:uid,p_period:period})});
-    const data=await r.json().catch(()=>null);
-    const spent=Number(data?.spent??0);
-    const remaining=Math.max(0,limit-spent);
-    const need=Number(body?.need??1);
-    return json(200,{allowed:remaining>=need,remaining,limit,used:spent,reset_seconds: secondsUntilReset()});
-  }catch(e){ return json(500,{error:String(e)}); }
+async function handleCreditsCheck(body:any, auth:string): Promise<Response>{
+  const caller=await resolveAuth(auth);
+  if(caller instanceof Response)return caller;
+  if(caller.kind!=="account")return json(403,{error:"Account authentication required"});
+  const requested=Number(body?.need??1);
+  const need=Number.isFinite(requested)?Math.max(1,Math.min(caller.tier?TIER_CREDITS[caller.tier]??TIER_CREDITS.free:TIER_CREDITS.free,Math.floor(requested))):1;
+  const credits=await accountCredits(caller.uid,caller.tier,need);
+  if(!credits.available)return json(503,{error:"Credit service temporarily unavailable"});
+  return json(200,{allowed:credits.allowed,remaining:credits.remaining,limit:credits.limit,used:credits.limit-credits.remaining,reset_seconds:secondsUntilReset()});
 }
-async function handleCreditsSpend(body:any): Promise<Response>{
-  const uid=String(body?.uid??"").trim(); const tier=String(body?.tier??"free").toLowerCase();
-  const model=String(body?.model??""); const usage=body?.usage??null;
-  let prompt_tokens=Number(body?.prompt_tokens??0), completion_tokens=Number(body?.completion_tokens??0);
-  if(usage){ prompt_tokens=Number(usage.prompt_tokens??usage.input_tokens??prompt_tokens); completion_tokens=Number(usage.completion_tokens??usage.output_tokens??completion_tokens); }
-  if(!uid) return json(400,{error:"uid required"});
-  const period=new Date().toISOString().slice(0,7);
-  // Costo OpenRouter unificado (mult sobre base, igual que core/credits.py).
-  const mult = model.includes("sonnet")?10: model.includes("v4-pro")?6: model.includes("gpt-4o")?7: model.includes("r1")?6: model.includes("gemini")?4.8: model.includes("v4.1-flash")||model.includes("v4-flash")?1.2: model.includes("nemo")?1.0: model.includes("nemotron")?0.5: model.includes("qwen")||model.includes("coder")?1.5: model.includes("mistral")?3.5: 1.2;
-  const spent_now=Math.max(1,Math.ceil((prompt_tokens+3.5*completion_tokens)/1000*mult));
-  try{
-    const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/spend_user_credits`,{method:"POST",headers:{...sbHeaders(),prefer:"return=representation"},body:JSON.stringify({p_uid:uid,p_period:period,p_amount:spent_now})});
-    const data=await r.json().catch(()=>null);
-    const used=Number(data?.spent??spent_now);
-    const limit=TIER_CREDITS[tier]??TIER_CREDITS.free;
-    return json(200,{spent_now,used,limit,remaining:Math.max(0,limit-used)});
-  }catch(e){ return json(500,{error:String(e)}); }
+async function handleCreditsSpend(body:any, auth:string): Promise<Response>{
+  // Usage supplied by a desktop/client is untrusted. Billing happens inside
+  // the authenticated chat handler from upstream provider usage instead.
+  return json(410,{error:"Client-side credit spending is disabled; usage is billed by the chat service."});
 }
 function secondsUntilReset(): number{ const now=new Date(); const nxt=new Date(now.getFullYear(), now.getMonth()+1, 1); return Math.floor((nxt.getTime()-now.getTime())/1000); }
 async function webContext(query:string):Promise<string>{
@@ -324,13 +339,42 @@ const WEB_TOOL_INSTRUCTIONS = `Herramientas cloud disponibles en AINSLUP Web:
 - get_current_time: obtiene fecha y hora por zona horaria.
 - generate_image: genera imágenes solo cuando el usuario lo solicita.
 Decide según la intención del usuario si hace falta una herramienta; no dependas de palabras clave literales. Para investigar, usa web_search y formula consultas breves que reflejen el significado de la petición, corrigiendo errores tipográficos. Evalúa si títulos y resúmenes realmente responden la pregunta: no uses diccionarios ni páginas comerciales genéricas como evidencia para rankings o afirmaciones técnicas. Prioriza documentación primaria, benchmarks y rankings independientes reconocidos. Si los resultados son irrelevantes o débiles, cambia el enfoque de la consulta una vez y busca fuentes más autorizadas antes de concluir que no hay información. Cita solo URLs devueltas por la búsqueda. No digas que careces de herramientas si una de ellas puede resolver la petición. AINSLUP Web nunca tiene acceso a archivos locales, ventanas, comandos ni al ordenador del usuario.`;
-async function chargeToolChat(caller:any, usage:any, actionCount:number):Promise<void>{
+function accountUsageCost(usage:any, model:string):number{
+  const finite=(value:unknown)=>{const n=Number(value??0);return Number.isFinite(n)?Math.max(0,Math.min(1_000_000,Math.floor(n))):0;};
+  const input=finite(usage?.prompt_tokens??usage?.input_tokens);
+  const output=finite(usage?.completion_tokens??usage?.output_tokens);
+  const name=String(model??"").toLowerCase();
+  const multiplier=name.includes("sonnet")?10:name.includes("v4-pro")?6:name.includes("gpt-4o")?7:name.includes("r1")?6:name.includes("gemini")?4.8:name.includes("v4.1-flash")||name.includes("v4-flash")?1.2:name.includes("nemo")?1:name.includes("nemotron")?0.5:name.includes("qwen")||name.includes("coder")?1.5:name.includes("mistral")?3.5:1.2;
+  return Math.max(1,Math.ceil((input+3.5*output)/1000*multiplier));
+}
+async function chargeAccountCredits(uid:string,tier:string,amount:number):Promise<"ok"|"limit"|"unavailable">{
+  const period=new Date().toISOString().slice(0,7);
+  const limit=TIER_CREDITS[tier]??TIER_CREDITS.free;
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/try_spend_user_credits`,{method:"POST",headers:{...sbHeaders(),prefer:"return=representation"},body:JSON.stringify({p_uid:uid,p_period:period,p_amount:Math.max(1,Math.floor(amount)),p_limit:limit})});
+    if(!r.ok)return "unavailable";
+    const value=await r.json().catch(()=>null);
+    return value===null?"limit":"ok";
+  }catch{return "unavailable";}
+}
+async function reserveFreeLicenseChat(licenseId:string):Promise<"ok"|"limit"|"unavailable">{
+  const period=new Date().toISOString().slice(0,7);
+  try{
+    const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/try_reserve_free_chat`,{method:"POST",headers:{...sbHeaders(),prefer:"return=representation"},body:JSON.stringify({p_license_id:licenseId,p_period:period,p_max_chats:FREE_CHAT_CAP})});
+    if(!r.ok)return "unavailable";
+    const value=await r.json().catch(()=>null);
+    return value===null?"limit":"ok";
+  }catch{return "unavailable";}
+}
+async function chargeToolChat(caller:any, usage:any, actionCount:number, model=""):Promise<void>{
   const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
   if(caller?.kind==="account"){
-    await rpc("spend_user_credits",{p_uid:String(caller.uid),p_period:period,p_amount:Math.max(1,actionCount)});
+    const actual=usage?accountUsageCost(usage,model):Math.max(1,actionCount);
+    // The handler atomically reserved one credit before calling any provider.
+    if(actual>1)await chargeAccountCredits(String(caller.uid),String(caller.tier),actual-1);
   }else if(caller?.kind==="license"){
     const lic=await fetchLicense(String(caller.sub));
-    if(lic) await rpc("bump_usage",{p_license_id:lic.id,p_period:period,p_tokens_in:Number(usage?.prompt_tokens??0),p_tokens_out:Number(usage?.completion_tokens??0)});
+    if(lic) await rpc("record_usage_tokens",{p_license_id:lic.id,p_period:period,p_tokens_in:Number(usage?.prompt_tokens??0),p_tokens_out:Number(usage?.completion_tokens??0)});
   }
 }
 async function handleWebToolChat(messages:any[], tier:string, requestedModel:string, caller:any, forceSearch:boolean=false):Promise<Response|null>{
@@ -339,6 +383,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
   const searchGuidance=`\n\nSi utilizas web_search, interpreta semánticamente la intención y redacta una consulta breve; no copies palabras de relleno ni errores tipográficos. Comprueba la pertinencia y fiabilidad de los resultados. Para rankings de modelos de IA, prioriza leaderboards y benchmarks independientes reconocidos (por ejemplo, Artificial Analysis, LMArena o Hugging Face) frente a diccionarios y listicles comerciales. Si los resultados son irrelevantes o débiles, intenta una consulta alternativa enfocada en benchmarks o fuentes primarias. Responde con las fuentes recuperadas y cita sus URLs; si tras ese intento no hay fuentes fiables, dilo sin inventar.`;
   const conversation=[{role:"system",content:systemMessages.join("\n\n")+searchGuidance},...rawConversation.filter((item:any)=>item?.role!=="system")];
   const events:any[]=[]; const images:string[]=[]; const searchResults:string[]=[]; let lastToolText="";
+  const totalUsage={prompt_tokens:0,completion_tokens:0};
   const preferred=requestedModel||DEFAULT_MODELS[tier]||DEFAULT_MODELS.free;
   const requested=preferred.toLowerCase();
   const radeonModel=requested.includes("deepseek-v4.1-flash")?"DeepSeek-V4.1-Flash":requested.includes("deepseek-v4-flash")?"DeepSeek-V4-Flash":"Qwen3.8-27B";
@@ -380,6 +425,8 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
     if(!response&&finalizing&&round<3)continue;
     if(!response) return events.length ? json(200,{content:events.some((event)=>event.name==="web_search")?searchFallbackAnswer(searchResults):(lastToolText||"La herramienta se ejecutó, pero no se pudo redactar una respuesta final."),tool_events:events,images,model,tier,tools_available:true}) : null;
     const data=await response.json().catch(()=>({}));
+    totalUsage.prompt_tokens+=Number(data?.usage?.prompt_tokens??0)||0;
+    totalUsage.completion_tokens+=Number(data?.usage?.completion_tokens??0)||0;
     const msg=data?.choices?.[0]?.message??{};
     let calls=Array.isArray(msg.tool_calls)?msg.tool_calls:[];
     // Algunos modelos devuelven la llamada como JSON en content en vez de usar tool_calls.
@@ -399,7 +446,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
       const leakedSearchBlock=events.some((event)=>event.name==="web_search")&&/(?:^|\n)Consulta:\s*.+\nFuente:\s*.+\nURL:\s*https?:\/\//m.test(content);
       if(finalizing&&(!content||isToolPayload(rawContent)||leakedSearchBlock)&&round<3)continue;
       if(leakedSearchBlock||finalizing&&(!content||isToolPayload(rawContent)))content=searchFallbackAnswer(searchResults);
-      await chargeToolChat(caller,data?.usage,events.length+1);
+      await chargeToolChat(caller,totalUsage,events.length+1,String(data?.model??model));
       return json(200,{content,tool_events:events,images,model:data?.model??model,tier,tools_available:true});
     }
     conversation.push({role:"assistant",content:calls.length&&msg.content?.trim().startsWith("{")?null:(msg.content??null),tool_calls:calls});
@@ -426,7 +473,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
        conversation.push({role:"tool",tool_call_id:call.id,content:result.text});
     }
   }
-  if(events.length) await chargeToolChat(caller,null,events.length+1);
+  if(events.length) await chargeToolChat(caller,totalUsage,events.length+1,model);
   return events.length ? json(200,{content:events.some((event)=>event.name==="web_search")?searchFallbackAnswer(searchResults):(lastToolText||"La herramienta se ejecutó, pero no se pudo redactar una respuesta final."),tool_events:events,images,model,tier,tools_available:true}) : null;
 }
 
@@ -434,6 +481,24 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   const caller=await resolveAuth(auth); if(caller instanceof Response) return caller;
   const tier=caller.tier;
   const messages=body?.messages; if(!Array.isArray(messages)||messages.length===0) return json(400,{error:"messages required"});
+  if(messages.length>100||new TextEncoder().encode(JSON.stringify(body)).length>1_000_000)return json(413,{error:"Conversation is too large"});
+  if(messages.some((message:any)=>!message||!["system","user","assistant","tool"].includes(message.role)))return json(400,{error:"Invalid message format"});
+  // Authorize and reserve quotas before web search, tools, or provider work.
+  let lic:any=null;
+  if(caller.kind==="license"){
+    lic=await fetchLicense(caller.sub);
+    if(!lic)return json(401,{error:"License not found"});
+    if(lic.revoked||(lic.expires_at&&Date.parse(lic.expires_at)<Date.now()))return json(401,{error:"License invalid, expired or revoked"});
+    if(tier==="free"){
+      const reserved=await reserveFreeLicenseChat(String(lic.id));
+      if(reserved==="unavailable")return json(503,{error:"Usage service temporarily unavailable"});
+      if(reserved==="limit")return json(402,{error:`Free tier limit reached (${FREE_CHAT_CAP} chats/month)`});
+    }
+  }else{
+    const charged=await chargeAccountCredits(caller.uid,tier,1);
+    if(charged==="unavailable")return json(503,{error:"Credit service temporarily unavailable"});
+    if(charged==="limit")return json(402,{error:`Alcanzaste el límite de Xens Credits de tu plan (${TIER_CREDITS[tier]??TIER_CREDITS.free} al mes). Se renuevan el 1º.`});
+  }
   messages.splice(0,0,{role:"system",content:AINSLUP_WEB_IDENTITY});
   // La Web no expone herramientas locales, pero sí puede consultar información pública.
   // Añadimos resultados de búsqueda como contexto para preguntas actuales.
@@ -474,16 +539,6 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   let referenceDate="";
   try{referenceDate=new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:requestedZone}).format(referenceNow);}catch{referenceDate=new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:"America/New_York"}).format(referenceNow);}
   messages.splice(1,0,{role:"system",content:`REFERENCIA TEMPORAL ACTUAL Y OBLIGATORIA: ${referenceDate} (${requestedZone}). Esta fecha viene del reloj actual del cliente en esta solicitud. Nunca afirmes que hoy es 2025 ni que tu reloj interno marca otra fecha. Distingue fechas históricas de la fecha actual. En preguntas sobre lanzamientos, solo concluye lo respaldado por las fuentes adjuntas; ausencia de resultados no demuestra que algo no exista.`});
-  let lic:any=null;
-  const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
-  if(caller.kind==="license"){
-    lic=await fetchLicense(caller.sub); if(!lic) return json(401,{error:"License not found"}); if(lic.revoked) return json(401,{error:"License revoked"}); if(lic.expires_at && Date.parse(lic.expires_at)<Date.now()) return json(401,{error:"License expired"});
-    if(tier==="free"){ const usage=await fetchUsage(lic.id,period); const chats=Number(usage?.chats??0); if(chats>=FREE_CHAT_CAP) return json(402,{error:`Free tier limit reached (${FREE_CHAT_CAP} chats/month)`}); }
-  } else {
-    // Cuenta sin serial: gate por Xens Credits del uid (el cliente descuenta).
-    const gate=await accountCredits(caller.uid,tier,1);
-    if(!gate.allowed) return json(402,{error:`Alcanzaste el límite de Xens Credits de tu plan (${gate.limit} al mes). Se renuevan el 1º.`});
-  }
   // XENS alias manual selection
   const alias = String(body?.xens_model ?? body?.alias ?? "").trim();
   if(alias && alias.toLowerCase()!=="auto" && XENS_ALIAS_MAP[alias]){
@@ -521,7 +576,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   if(body?.tool_mode!==true && (body?.stream || body?.xens_stream !== false)) {
     // if caller wants streaming but didn't set stream, we upgrade to stream when not needing tools? keep tools streaming
     // For tool-calling, streaming still works with tool_calls chunked
-    return handleChatStream(messages, body?.tools, tier, String(body?.model ?? ""));
+    return handleChatStream(messages, body?.tools, tier, String(body?.model ?? ""),caller);
   }
   // Todo por OpenRouter (facturación unificada). Mistral directo solo
   // como último recurso si OpenRouter cae.
@@ -612,11 +667,39 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const safeContent=searchContext?`He realizado la búsqueda web. Estos son los resultados encontrados:\n\n${searchContext}`:"He ejecutado el motor de búsqueda web, pero no encontré resultados verificables para esa consulta.";
     return json(200,{content:safeContent,tool_calls:[],tool_events:[{name:"web_search",status:"completed"}],tools_available:true,model:up?.model??model,tier});
   }
-  if(lic) await rpc("bump_usage",{p_license_id:lic.id,p_period:period,p_tokens_in:Number(up?.usage?.prompt_tokens??0),p_tokens_out:Number(up?.usage?.completion_tokens??0)});
+  if(caller.kind==="account"){
+    const actual=accountUsageCost(up?.usage,up?.model??model);
+    if(actual>1)await chargeAccountCredits(caller.uid,tier,actual-1);
+  }
+  if(lic) await rpc("record_usage_tokens",{p_license_id:lic.id,p_period:period,p_tokens_in:Number(up?.usage?.prompt_tokens??0),p_tokens_out:Number(up?.usage?.completion_tokens??0)});
   return json(200,{content:safeAssistantContent(String(msg.content??"")),tool_calls:msg.tool_calls??[],tool_events:wantsSearch?[{name:"web_search",status:"completed"}]:[],tools_available:true,model:up?.model??model,usage:up?.usage??null,tier});
 }
-async function tryStream(url:string,key:string,mdl:string,messages:any,tools:any):Promise<Response|null>{
-  const payload:any={model:mdl,messages,temperature:0.3,stream:true}; if(Array.isArray(tools)&&tools.length>0) payload.tools=tools;
+function meterProviderStream(body:ReadableStream<Uint8Array>,caller:any,model:string):ReadableStream<Uint8Array>{
+  const decoder=new TextDecoder();
+  const encoder=new TextEncoder();
+  let pending="",usage:any=null;
+  const consumeLine=(line:string)=>{
+    if(!line.startsWith("data:"))return;
+    const data=line.slice(5).trim();
+    if(!data||data==="[DONE]")return;
+    try{const parsed=JSON.parse(data);if(parsed?.usage)usage=parsed.usage;}catch{}
+  };
+  return body.pipeThrough(new TransformStream<Uint8Array,Uint8Array>({
+    transform(chunk,controller){
+      pending+=decoder.decode(chunk,{stream:true});
+      const lines=pending.split(/\r?\n/);pending=lines.pop()??"";
+      for(const line of lines)consumeLine(line);
+      controller.enqueue(chunk);
+    },
+    async flush(controller){
+      pending+=decoder.decode();
+      if(pending)consumeLine(pending);
+      await chargeToolChat(caller,usage,1,model);
+    },
+  }));
+}
+async function tryStream(url:string,key:string,mdl:string,messages:any,tools:any,caller:any):Promise<Response|null>{
+  const payload:any={model:mdl,messages,temperature:0.3,max_tokens:2000,stream:true,stream_options:{include_usage:true}}; if(Array.isArray(tools)&&tools.length>0) payload.tools=tools.slice(0,32);
   const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(), 25000);
   try{
     const r=await fetch(url,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify(payload), signal: ctrl.signal});
@@ -624,10 +707,10 @@ async function tryStream(url:string,key:string,mdl:string,messages:any,tools:any
     // Passthrough directo del body nativo (el re-empaquetado manual con
     // ReadableStream rompía la entrega en este runtime: 200 vacío).
     clearTimeout(t);
-    return new Response(r.body,{headers:{"content-type":"text/event-stream", "cache-control":"no-cache", ...CORS}});
+    return new Response(meterProviderStream(r.body,caller,mdl),{headers:{"content-type":"text/event-stream", "cache-control":"no-cache", ...CORS}});
   }catch{ clearTimeout(t); return null; }
 }
-async function handleChatStream(messages:any, tools:any, tier:string, requestedModel:string=""): Promise<Response>{
+async function handleChatStream(messages:any, tools:any, tier:string, requestedModel:string="",caller:any): Promise<Response>{
   const base = requestedModel || (DEFAULT_MODELS[tier] ?? DEFAULT_MODELS.free);
   const isMistral = base.includes("mistral") || base.includes("codestral") || base.includes("pixtral");
   // Radeon primero en free/lite; OpenRouter sigue como proveedor principal del
@@ -650,12 +733,26 @@ async function handleChatStream(messages:any, tools:any, tier:string, requestedM
     mdl:isMistral?base:"mistral-small-2506",
   });
   for(const c of cands){
-    const s=await tryStream(c.url,c.key,c.mdl,messages,tools);
+    const s=await tryStream(c.url,c.key,c.mdl,messages,tools,caller);
     if(s) return s;
   }
   return json(502,{error:"All stream models failed"});
 }
-async function handleDeactivate(body:any): Promise<Response>{ const serial=String(body?.serial??"").trim().toUpperCase(); if(!serial) return json(400,{error:"serial required"}); const device=String(body?.device_id??""); const {status,data}=await rpc("deactivate_license",{p_key:serial,p_device_id:device,p_machine_id:device}); if(status!==200||!data||data.error) return json(400,{error:data?.error??"Deactivation failed"}); return json(200,data); }
+async function handleDeactivate(req:Request): Promise<Response>{
+  const caller=await resolveAuth(req.headers.get("authorization")??"");
+  if(caller instanceof Response)return caller;
+  if(caller.kind!=="license")return json(403,{error:"License authentication required"});
+  const device=await deviceFingerprint(req);
+  const {status,data}=await rpc("deactivate_license",{p_key:caller.sub,p_device_id:device,p_machine_id:device});
+  if(status!==200||!data||data.error)return json(400,{error:data?.error??"Deactivation failed"});
+  return json(200,data);
+}
+async function provisionIpHash(req:Request):Promise<string|null>{
+  const ip=(req.headers.get("cf-connecting-ip")||req.headers.get("x-real-ip")||req.headers.get("x-forwarded-for")?.split(",")[0]||"").trim();
+  if(!ip||ip.length>128)return null;
+  const digest=await crypto.subtle.digest("SHA-256",enc.encode(ip));
+  return Array.from(new Uint8Array(digest)).map(byte=>byte.toString(16).padStart(2,"0")).join("");
+}
 async function deviceFingerprint(req:Request):Promise<string>{ const ip=req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()??"unknown"; const ua=req.headers.get("user-agent")??""; const buf=await crypto.subtle.digest("SHA-256",enc.encode(`${ip}|${ua}`)); return Array.from(new Uint8Array(buf)).slice(0,8).map(b=>b.toString(16).padStart(2,"0")).join(""); }
 async function requireAuth(auth:string):Promise<Record<string,unknown>|Response>{ if(!auth?.toLowerCase().startsWith("bearer ")) return json(401,{error:"Missing Bearer token"}); const payload=await verifyToken(auth.slice(7).trim()); if(!payload) return json(401,{error:"License token invalid, expired or revoked (401). Run /activate again."}); return payload; }
 async function supabaseUser(token:string):Promise<any|null>{
@@ -666,30 +763,51 @@ async function supabaseUser(token:string):Promise<any|null>{
   }catch{ return null; }
 }
 type Caller = {kind:"license",sub:string,tier:string} | {kind:"account",uid:string,email:string,tier:string};
+async function fetchAccountTier(uid:string):Promise<string>{
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/subscriptions?select=plan,status,current_period_end&uid=eq.${encodeURIComponent(uid)}&limit=1`,{headers:sbHeaders()});
+  if(!r.ok)throw new Error("Unable to verify account plan");
+  const rows=await r.json().catch(()=>null);
+  const subscription=Array.isArray(rows)?rows[0]:null;
+  if(subscription){
+    const end=subscription.current_period_end?Date.parse(String(subscription.current_period_end)):0;
+    const active=String(subscription.status??"").toLowerCase()==="active"&&(!end||end>Date.now());
+    const plan=String(subscription.plan??"free").toLowerCase();
+    return active&&TIER_CREDITS[plan]?plan:"free";
+  }
+  return "free";
+}
 async function resolveAuth(auth:string):Promise<Caller|Response>{
   if(!auth?.toLowerCase().startsWith("bearer ")) return json(401,{error:"Missing Bearer token"});
   const token=auth.slice(7).trim();
   const payload=await verifyToken(token);
-  if(payload) return {kind:"license",sub:String(payload.sub??""),tier:String(payload.tier??"free").toLowerCase()};
+  if(payload){
+    const sub=String(payload.sub??"");
+    const license=await fetchLicense(sub);
+    if(!license||license.revoked||(license.expires_at&&Date.parse(license.expires_at)<Date.now()))return json(401,{error:"License invalid, expired or revoked"});
+    const storedTier=String(license.tier??"free").toLowerCase();
+    return {kind:"license",sub,tier:TIER_CREDITS[storedTier]?storedTier:"free"};
+  }
   // No es serial: probar JWT de cuenta Supabase (consumidor sin serial).
   const u=await supabaseUser(token);
   const uid=u?.id||u?.sub;
   if(!uid) return json(401,{error:"Token inválido (ni licencia ni cuenta). Inicia sesión de nuevo."});
-  const meta=u?.user_metadata??{}; const app=u?.app_metadata??{};
-  let tier=String(app.tier??meta.tier??"free").toLowerCase();
-  if(!TIER_CREDITS[tier]) tier="free";
+  let tier:string;
+  try{tier=await fetchAccountTier(String(uid));}
+  catch{return json(503,{error:"Unable to verify account plan"});}
   return {kind:"account",uid:String(uid),email:String(u?.email??meta.email??""),tier};
 }
-async function accountCredits(uid:string,tier:string,need=1):Promise<{allowed:boolean;remaining:number;limit:number}>{
+async function accountCredits(uid:string,tier:string,need=1):Promise<{allowed:boolean;remaining:number;limit:number;available:boolean}>{
   const limit=TIER_CREDITS[tier]??TIER_CREDITS.free;
   const period=new Date().toISOString().slice(0,7);
   try{
     const r=await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_user_credits`,{method:"POST",headers:sbHeaders(),body:JSON.stringify({p_uid:uid,p_period:period})});
+    if(!r.ok)throw new Error("Credit database unavailable");
     const data=await r.json().catch(()=>null);
-    const spent=Number(data?.spent??0);
+    const spent=Number(typeof data==="number"||typeof data==="string"?data:data?.spent);
+    if(!Number.isFinite(spent)||spent<0)throw new Error("Invalid credit balance");
     const remaining=Math.max(0,limit-spent);
-    return {allowed:remaining>=need,remaining,limit};
-  }catch{ return {allowed:true,remaining:limit,limit}; }
+    return {allowed:remaining>=need,remaining,limit,available:true};
+  }catch{return {allowed:false,remaining:0,limit,available:false};}
 }
 
 Deno.serve(async (req:Request)=>{  if(req.method==="OPTIONS") return new Response(null,{status:204,headers:CORS});
@@ -701,9 +819,9 @@ Deno.serve(async (req:Request)=>{  if(req.method==="OPTIONS") return new Respons
     if(req.method==="POST"&&path==="chat") return await handleChat(req, req.headers.get("authorization")??"", await req.json().catch(()=>({})));
     if(req.method==="POST"&&path==="checkout") return await handleCreateCheckout(req, req.headers.get("authorization")??"", await req.json().catch(()=>({})));
     if(req.method==="POST"&&path==="chat-stream") return await handleChat(req, req.headers.get("authorization")??"", {...await req.json().catch(()=>({})),stream:true});
-    if(req.method==="POST"&&path==="credits-check") return await handleCreditsCheck(await req.json().catch(()=>({})));
-    if(req.method==="POST"&&path==="credits-spend") return await handleCreditsSpend(await req.json().catch(()=>({})));
-    if(req.method==="POST"&&path==="deactivate") return await handleDeactivate(await req.json().catch(()=>({})));
+    if(req.method==="POST"&&path==="credits-check") return await handleCreditsCheck(await req.json().catch(()=>({})),req.headers.get("authorization")??"");
+    if(req.method==="POST"&&path==="credits-spend") return await handleCreditsSpend(await req.json().catch(()=>({})),req.headers.get("authorization")??"");
+    if(req.method==="POST"&&path==="deactivate") return await handleDeactivate(req);
     if(req.method==="GET"&&path==="health") return json(200,{ok:true, tiers:TIER_CREDITS});
     return json(404,{error:"Not found"});
   }catch(e){ return json(500,{error:String(e)}); }
