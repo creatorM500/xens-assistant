@@ -144,48 +144,76 @@ async function webContext(query:string):Promise<string>{
   const clean=(v:string)=>v.replace(/<[^>]+>/g," ").replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#x27;|&#39;/g,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim();
   async function fetchText(url:string, ms:number):Promise<string>{
     const controller=new AbortController(); const timeout=setTimeout(()=>controller.abort(),ms);
-    try{const r=await fetch(url,{headers:{"user-agent":"Mozilla/5.0 AINSLUP-Web/1.0","accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},signal:controller.signal});return r.ok?await r.text():"";}
+    try{const r=await fetch(url,{headers:{"user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36","accept-language":"es-ES,es;q=0.9,en;q=0.8","accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},signal:controller.signal});return r.ok?await r.text():"";}
     catch{return "";}finally{clearTimeout(timeout);}
   }
-  const queries=Array.from(new Set(query.split(/\s+\|\s+/).map(q=>q.trim()).filter(Boolean))).slice(0,3);
+  const queries=Array.from(new Set(query.split(/\s+\|\s+/).map(q=>q.trim()).filter(Boolean))).slice(0,1);
   for(const rawQuery of queries){
-    const q=rawQuery.replace(/^(?:busca(?:r)?(?: en internet)?|invest[ií]game|investiga|consulta)\s+(?:sobre|acerca de)?\s*/i,"").trim()||rawQuery;
+    const q=(rawQuery.replace(/^(?:busca(?:r)?(?: en internet)?|invest[ií]game|investiga|consulta)\s+(?:sobre|acerca de)?\s*/i,"").replace(/["“”]/g," ").replace(/\s+/g," ").trim()||rawQuery);
     const parsed:Hit[]=[];
-    const ddg=await fetchText(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(q)}`,6000);
-    const ddgRe=/<a(?=[^>]*class=['"]result-link['"])(?=[^>]*href=['"]([^'"]+)['"])[^>]*>([\s\S]*?)<\/a>[\s\S]*?<td(?=[^>]*class=['"]result-snippet['"])[^>]*>([\s\S]*?)<\/td>/gi;
+    const [yahoo,bing,ddg]=await Promise.all([
+      fetchText(`https://search.yahoo.com/search?p=${encodeURIComponent(q)}`,5000),
+      fetchText(`https://www.bing.com/search?q=${encodeURIComponent(q)}`,5000),
+      fetchText(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`,5000)
+    ]);
+    const yahooRe=/<div\b[^>]*class=["'][^"']*\bdd algo[^"']*["'][^>]*>([\s\S]*?)<\/li>/gi;
     let m:RegExpExecArray|null;
-    while((m=ddgRe.exec(ddg))&&parsed.length<8){
+    while((m=yahooRe.exec(yahoo))&&parsed.length<8){
+      const block=m[1];
+      const link=block.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<h3\b[^>]*>([\s\S]*?)<\/h3>/i);
+      const snippet=block.match(/<div\b[^>]*class=["'][^"']*\bcompText[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+      if(link){
+        let url=clean(link[1]).replace(/&amp;/g,"&");
+        const redirect=url.match(/\/RU=([^/]+)/i)?.[1];
+        if(redirect){try{url=decodeURIComponent(redirect.replace(/%([0-9a-f]{2})/gi,"%$1"));}catch{}}
+        if(/^https?:\/\//i.test(url)&&!/(^|\.)yahoo\.com$/i.test(new URL(url).hostname))
+          parsed.push({title:clean(link[2]),snippet:clean(snippet?.[1]??""),url,query:q});
+      }
+    }
+    const bingRe=/<li\b[^>]*class=["'][^"']*\bb_algo\b[^"']*["'][^>]*>([\s\S]*?)<\/li>/gi;
+    while((m=bingRe.exec(bing))&&parsed.length<8){
+      const block=m[1];
+      const link=block.match(/<h2[^>]*>\s*<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
+      const snippet=block.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+      if(link){
+        let url=clean(link[1]);
+        if(url.startsWith("//"))url=`https:${url}`;
+        if(/bing\.com\/ck\/a/i.test(url)){
+          const encoded=url.match(/[?&]u=a1([A-Za-z0-9_-]+)/i)?.[1];
+          if(encoded){
+            try{
+              const base64=encoded.replace(/-/g,"+").replace(/_/g,"/").padEnd(Math.ceil(encoded.length/4)*4,"=");
+              url=new TextDecoder().decode(Uint8Array.from(atob(base64),(char)=>char.charCodeAt(0)));
+            }catch{}
+          }
+        }
+        if(/^https?:\/\//i.test(url)&&!/(^|\.)bing\.com$/i.test(new URL(url).hostname))
+          parsed.push({title:clean(link[2]),snippet:clean(snippet?.[1]??""),url,query:q});
+      }
+    }
+    const ddgRe=/<a\b(?=[^>]*class=['"][^'"]*result__a[^'"]*['"])(?=[^>]*href=['"]([^'"]+)['"])[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a\b(?=[^>]*class=['"][^'"]*result__snippet[^'"]*['"])[^>]*>([\s\S]*?)<\/a>/gi;
+    const ddgHits:Hit[]=[];
+    while((m=ddgRe.exec(ddg))&&ddgHits.length<8){
       const rawUrl=clean(m[1]).replace(/&amp;/g,"&");const encoded=rawUrl.includes("uddg=")?rawUrl.split("uddg=")[1].split("&")[0]:rawUrl;
       let url=encoded;try{url=decodeURIComponent(encoded);}catch{}if(url.startsWith("//"))url=`https:${url}`;
-      parsed.push({title:clean(m[2]),snippet:clean(m[3]),url,query:q});
+      if(/^https?:\/\//i.test(url)&&!/(duckduckgo\.com|bing\.com)/i.test(url))ddgHits.push({title:clean(m[2]),snippet:clean(m[3]),url,query:q});
     }
-    const words=q.toLowerCase().match(/[a-záéíóúñ0-9.]+/g)?.filter(w=>w.length>2&&!/^(the|and|for|about|with|from|how|what|best|model|modelo|busca|internet|anthropic|release|latest)$/.test(w))??[];
-    for(let i=parsed.length-1;i>=0;i--){
-      const text=`${parsed[i].title} ${parsed[i].snippet} ${parsed[i].url}`.toLowerCase();
-      if(words.length&& !words.some(word=>text.includes(word))) parsed.splice(i,1);
-    }
+    if(!parsed.length) parsed.push(...ddgHits);
     if(!parsed.length){
       const rss=await fetchText(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(q)}`,7000);
       const rssRe=/<item>\s*<title>([\s\S]*?)<\/title>\s*<link>([\s\S]*?)<\/link>\s*<description>([\s\S]*?)<\/description>/gi;
-      while((m=rssRe.exec(rss))&&parsed.length<8)parsed.push({title:clean(m[1]),snippet:clean(m[3]),url:clean(m[2]),query:q});
-    }
-    for(let i=parsed.length-1;i>=0;i--){
-      const text=`${parsed[i].title} ${parsed[i].snippet} ${parsed[i].url}`.toLowerCase();
-      if(words.length&&!words.some(word=>text.includes(word)))parsed.splice(i,1);
+      while((m=rssRe.exec(rss))&&parsed.length<8){
+        const url=clean(m[2]);
+        if(/^https?:\/\//i.test(url)&&!/(bing\.com|microsoft\.com\/search)/i.test(url))parsed.push({title:clean(m[1]),snippet:clean(m[3]),url,query:q});
+      }
     }
     const relevant=parsed;
     for(const hit of relevant){const key=hit.url.toLowerCase();if(!seen.has(key)){seen.add(key);hits.push(hit);}}
   }
   if(!hits.length)return "";
-  const sources=await Promise.all(hits.slice(0,5).map(async(hit)=>{
-    let page="";
-    if(/^https?:\/\//i.test(hit.url)&&!/(bing\.com\/(camera|profile|search)|bing\.com\/$)/i.test(hit.url)){
-      const html=await fetchText(hit.url,3500);
-      const body=html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1]??html;
-      page=clean(body.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>|<nav[\s\S]*?<\/nav>|<header[\s\S]*?<\/header>|<footer[\s\S]*?<\/footer>/gi," ")).slice(0,1800);
-    }
-    return `Consulta: ${hit.query}\nFuente: ${hit.title}\nURL: ${hit.url}\nResumen: ${hit.snippet}${page?`\nContenido de la página: ${page}`:""}`;
-  }));
+  const sources=hits.slice(0,5).map((hit)=>
+    `Consulta: ${hit.query}\nFuente: ${hit.title}\nURL: ${hit.url}\nResumen: ${hit.snippet}`
+  );
   return sources.join("\n\n");
 }
 
@@ -210,6 +238,12 @@ const WEB_TOOL_SCHEMAS = [
 ];
 function parseTextToolCall(content:string): {name:string; args:any}|null {
   const source=content.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");
+  const xmlName=source.match(/<function=([a-z_]+)>/i)?.[1];
+  if(xmlName){
+    const args:any={}; const parameterRe=/<parameter=([a-z_]+)>([\s\S]*?)<\/parameter>/gi; let parameter:RegExpExecArray|null;
+    while((parameter=parameterRe.exec(source)))args[parameter[1]]=parameter[2].trim().replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">");
+    if(WEB_TOOL_SCHEMAS.some((entry:any)=>entry.function?.name===xmlName))return {name:xmlName,args};
+  }
   const candidates=[source];
   const start=source.indexOf("{"); const end=source.lastIndexOf("}");
   if(start>=0 && end>start && source.slice(start,end+1)!==source) candidates.push(source.slice(start,end+1));
@@ -225,6 +259,7 @@ function parseTextToolCall(content:string): {name:string; args:any}|null {
   return null;
 }
 function isToolPayload(content:string): boolean {
+  if(/<tool_call>|<function=[a-z_]+>|<parameter=[a-z_]+>/i.test(content.trim())) return true;
   try{
     const raw=content.trim().replace(/^```(?:json)?\s*|\s*```$/g,"");
     const parsed=JSON.parse(raw);
@@ -235,6 +270,17 @@ function isToolPayload(content:string): boolean {
 function safeAssistantContent(content:string): string {
   const cleaned=cleanToolTrace(content);
   return isToolPayload(cleaned) ? "La herramienta recibió la solicitud, pero no pudo generar una respuesta legible." : cleaned;
+}
+function searchFallbackAnswer(results:string[]):string{
+  const sources=results.flatMap((result)=>{
+    const title=result.match(/^Fuente:\s*(.+)$/m)?.[1]?.trim();
+    const url=result.match(/^URL:\s*(https?:\/\/\S+)/m)?.[1]?.trim();
+    const summary=result.match(/^Resumen:\s*(.+)$/m)?.[1]?.trim();
+    return title&&url?[{title,url,summary}]:[];
+  }).filter((source,index,all)=>all.findIndex((other)=>other.url===source.url)===index).slice(0,5);
+  if(!sources.length)return "No pude obtener fuentes verificables para esta búsqueda. Inténtalo de nuevo con otro enfoque.";
+  const cited=sources.slice(0,3);
+  return `En conjunto, los resultados apuntan a lo siguiente:\n${cited.map((source)=>`- ${source.summary?.slice(0,220)||source.title} ([${source.title}](${source.url}))`).join("\n")}\n\nEs una síntesis provisional de los fragmentos disponibles; conviene verificar cualquier dato decisivo en la fuente original.`;
 }
 
 function cleanToolTrace(content:string): string {
@@ -277,18 +323,27 @@ const WEB_TOOL_INSTRUCTIONS = `Herramientas cloud disponibles en AINSLUP Web:
 - calculator: calcula expresiones matemáticas seguras.
 - get_current_time: obtiene fecha y hora por zona horaria.
 - generate_image: genera imágenes solo cuando el usuario lo solicita.
-Debes usar estas herramientas cuando correspondan. No digas que careces de herramientas si una de ellas puede resolver la petición. AINSLUP Web nunca tiene acceso a archivos locales, ventanas, comandos ni al ordenador del usuario.`;
+Decide según la intención del usuario si hace falta una herramienta; no dependas de palabras clave literales. Para investigar, usa web_search y formula consultas breves que reflejen el significado de la petición, corrigiendo errores tipográficos. Evalúa si títulos y resúmenes realmente responden la pregunta: no uses diccionarios ni páginas comerciales genéricas como evidencia para rankings o afirmaciones técnicas. Prioriza documentación primaria, benchmarks y rankings independientes reconocidos. Si los resultados son irrelevantes o débiles, cambia el enfoque de la consulta una vez y busca fuentes más autorizadas antes de concluir que no hay información. Cita solo URLs devueltas por la búsqueda. No digas que careces de herramientas si una de ellas puede resolver la petición. AINSLUP Web nunca tiene acceso a archivos locales, ventanas, comandos ni al ordenador del usuario.`;
+async function chargeToolChat(caller:any, usage:any, actionCount:number):Promise<void>{
+  const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  if(caller?.kind==="account"){
+    await rpc("spend_user_credits",{p_uid:String(caller.uid),p_period:period,p_amount:Math.max(1,actionCount)});
+  }else if(caller?.kind==="license"){
+    const lic=await fetchLicense(String(caller.sub));
+    if(lic) await rpc("bump_usage",{p_license_id:lic.id,p_period:period,p_tokens_in:Number(usage?.prompt_tokens??0),p_tokens_out:Number(usage?.completion_tokens??0)});
+  }
+}
 async function handleWebToolChat(messages:any[], tier:string, requestedModel:string, caller:any, forceSearch:boolean=false):Promise<Response|null>{
-  const latestUser=String([...messages].reverse().find((item:any)=>item?.role==="user")?.content??"");
-  const directEvents:any[]=[]; const directImages:string[]=[];
-  const searchIntent=forceSearch;
   const rawConversation=[{role:"system",content:WEB_TOOL_INSTRUCTIONS},...messages.map(item=>({...item}))];
   const systemMessages=rawConversation.filter((item:any)=>item?.role==="system").map((item:any)=>String(item.content??"").trim()).filter(Boolean);
-  const conversation=[{role:"system",content:systemMessages.join("\n\n")},...rawConversation.filter((item:any)=>item?.role!=="system")];
-  const events:any[]=[]; const images:string[]=[]; let lastToolText="";
+  const searchGuidance=`\n\nSi utilizas web_search, interpreta semánticamente la intención y redacta una consulta breve; no copies palabras de relleno ni errores tipográficos. Comprueba la pertinencia y fiabilidad de los resultados. Para rankings de modelos de IA, prioriza leaderboards y benchmarks independientes reconocidos (por ejemplo, Artificial Analysis, LMArena o Hugging Face) frente a diccionarios y listicles comerciales. Si los resultados son irrelevantes o débiles, intenta una consulta alternativa enfocada en benchmarks o fuentes primarias. Responde con las fuentes recuperadas y cita sus URLs; si tras ese intento no hay fuentes fiables, dilo sin inventar.`;
+  const conversation=[{role:"system",content:systemMessages.join("\n\n")+searchGuidance},...rawConversation.filter((item:any)=>item?.role!=="system")];
+  const events:any[]=[]; const images:string[]=[]; const searchResults:string[]=[]; let lastToolText="";
   const preferred=requestedModel||DEFAULT_MODELS[tier]||DEFAULT_MODELS.free;
+  const requested=preferred.toLowerCase();
+  const radeonModel=requested.includes("deepseek-v4.1-flash")?"DeepSeek-V4.1-Flash":requested.includes("deepseek-v4-flash")?"DeepSeek-V4-Flash":"Qwen3.8-27B";
   const candidates:Array<{url:string;key:string;model:string}> = [];
-  if(RADEON_KEY) candidates.push({url:RADEON_URL,key:RADEON_KEY,model:RADEON_MODEL});
+  if(RADEON_KEY) candidates.push({url:RADEON_URL,key:RADEON_KEY,model:radeonModel});
   if(OPENROUTER_KEY){
     for(const model of [preferred,"google/gemini-2.0-flash-001","qwen/qwen-2.5-coder-32b-instruct","deepseek/deepseek-v4.1-flash"].filter((model,index,list)=>model&&list.indexOf(model)===index)){
       candidates.push({url:"https://openrouter.ai/api/v1/chat/completions",key:OPENROUTER_KEY,model});
@@ -296,10 +351,23 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
   }
   if(!candidates.length) return null;
   let model=preferred;
+  const searchedQueries=new Set<string>();
   for(let round=0;round<4;round++){
     let response:Response|null=null;
+    const finalizing=round>=2;
+    let roundConversation=conversation;
+    if(finalizing){
+      const sourceMessages=messages.filter((item:any)=>item?.role!=="tool"&&!(item?.role==="assistant"&&Array.isArray(item?.tool_calls))&&!(item?.role==="system"&&(item?.content===WEB_TOOL_INSTRUCTIONS||/El usuario solicita información actual o investigación|BÚSQUEDA SOLICITADA/i.test(String(item?.content??"")))));
+      const systemContent=sourceMessages.filter((item:any)=>item?.role==="system").map((item:any)=>String(item.content??"").trim()).filter(Boolean);
+      const userAndAssistant=sourceMessages.filter((item:any)=>item?.role!=="system");
+      systemContent.push(`${round>2?"REINTENTO FINAL: la respuesta anterior no fue texto útil para el usuario.":"La búsqueda ya terminó."} Tu tarea ahora es CONTESTAR al usuario, no buscar ni describir el proceso. No llames herramientas y no escribas XML, JSON, bloques “Consulta/Fuente/Resumen” ni copies literalmente los resultados. Escribe una síntesis natural y directa en el idioma del usuario: empieza por la conclusión principal, compara la evidencia pertinente en 2-5 frases o viñetas y cita enlaces exactos junto a las afirmaciones. Si la evidencia no alcanza para afirmar algo con certeza, explica brevemente qué sí dicen las fuentes y qué no se puede verificar; no te limites a enumerarlas ni respondas que no puedes sintetizar.\n\nFuentes recuperadas:\n${searchResults.join("\n\n")||"No se recuperaron fuentes verificables."}`);
+      roundConversation=[{role:"system",content:systemContent.join("\n\n")},...userAndAssistant];
+    }
     for(const candidate of candidates){
-      const attempt=await requestToolModel(candidate.url,candidate.key,{model:candidate.model,messages:conversation,tools:WEB_TOOL_SCHEMAS,tool_choice:(forceSearch&&round===0)?{type:"function",function:{name:"web_search"}}:"auto",temperature:.3,max_tokens:2000});
+      const payload:any={model:candidate.model,messages:roundConversation,temperature:finalizing ? 0.2 : 0.3,max_tokens:2000};
+      payload.tools=WEB_TOOL_SCHEMAS;
+      payload.tool_choice=finalizing?"none":(forceSearch&&round===0)?{type:"function",function:{name:"web_search"}}:"auto";
+      const attempt=await requestToolModel(candidate.url,candidate.key,payload);
       if(attempt && attempt.ok){
         const preview=await attempt.clone().json().catch(()=>null);
         const previewMessage=preview?.choices?.[0]?.message;
@@ -309,40 +377,57 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
         response=attempt; model=candidate.model; break;
       }
     }
-    if(!response) return events.length ? json(200,{content:lastToolText||"La herramienta se ejecutó, pero no se pudo redactar una respuesta final.",tool_events:events,images,model,tier,tools_available:true}) : null;
+    if(!response&&finalizing&&round<3)continue;
+    if(!response) return events.length ? json(200,{content:events.some((event)=>event.name==="web_search")?searchFallbackAnswer(searchResults):(lastToolText||"La herramienta se ejecutó, pero no se pudo redactar una respuesta final."),tool_events:events,images,model,tier,tools_available:true}) : null;
     const data=await response.json().catch(()=>({}));
     const msg=data?.choices?.[0]?.message??{};
     let calls=Array.isArray(msg.tool_calls)?msg.tool_calls:[];
     // Algunos modelos devuelven la llamada como JSON en content en vez de usar tool_calls.
     // Convierte ese formato para que la herramienta se ejecute y no se muestre al usuario.
-    if(!calls.length && typeof msg.content === "string"){
+    if(!finalizing&&!calls.length && typeof msg.content === "string"){
       const parsedCall=parseTextToolCall(msg.content);
       if(parsedCall) calls=[{id:`text-tool-${round}`,type:"function",function:{name:parsedCall.name,arguments:JSON.stringify(parsedCall.args)}}];
     }
+    if(finalizing) calls=[];
     if(!calls.length){
       // Si el proveedor devuelve argumentos JSON como contenido, no los enseñes
       // ni los conviertas en un mensaje genérico: deja que handleChat ejecute el
       // fallback cloud y redacte la respuesta completa con el modelo normal.
-      if(isToolPayload(String(msg.content??""))) return null;
-      if(caller?.kind==="account"){
-        const now=new Date(); const period=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
-        await rpc("spend_user_credits",{p_uid:String(caller.uid),p_period:period,p_amount:Math.max(1,events.length+1)});
-      }
-      return json(200,{content:safeAssistantContent(String(msg.content??"")),tool_events:events,images,model:data?.model??model,tier,tools_available:true});
+      if(isToolPayload(String(msg.content??""))&&!finalizing) return null;
+      const rawContent=String(msg.content??"");
+      let content=safeAssistantContent(rawContent);
+      const leakedSearchBlock=events.some((event)=>event.name==="web_search")&&/(?:^|\n)Consulta:\s*.+\nFuente:\s*.+\nURL:\s*https?:\/\//m.test(content);
+      if(finalizing&&(!content||isToolPayload(rawContent)||leakedSearchBlock)&&round<3)continue;
+      if(leakedSearchBlock||finalizing&&(!content||isToolPayload(rawContent)))content=searchFallbackAnswer(searchResults);
+      await chargeToolChat(caller,data?.usage,events.length+1);
+      return json(200,{content,tool_events:events,images,model:data?.model??model,tier,tools_available:true});
     }
     conversation.push({role:"assistant",content:calls.length&&msg.content?.trim().startsWith("{")?null:(msg.content??null),tool_calls:calls});
     for(const call of calls){
       let args:any={}; try{ args=JSON.parse(call.function?.arguments||"{}"); }catch{}
       const name=String(call.function?.name||""); events.push({name:name||"tool",status:"running"});
       let result:{text:string;image?:string};
-      try{ result=await executeWebTool(name,args); }catch{ result={text:"La herramienta no pudo completarse."}; }
+      try{
+        if(name==="web_search"){
+          const query=String(args?.query??args?.queries?.[0]??"").split(/\s+\|\s+/)[0].trim();
+          const key=query.toLocaleLowerCase();
+          if(!query) result={text:"La consulta llegó vacía. Formula una consulta breve a partir de la intención del usuario."};
+          else if(searchedQueries.has(key)) result={text:"Esa consulta ya se realizó. No la repitas: responde con la evidencia que ya tienes."};
+          else if(searchedQueries.size>=2) result={text:"Ya se hicieron dos consultas web (la inicial y una reformulación). No busques más; responde ahora con la evidencia recuperada y señala sus límites."};
+          else{
+            searchedQueries.add(key);result=await executeWebTool(name,{...args,query});
+            if(result.text&&!/no se encontraron resultados p[uú]blicos/i.test(result.text))searchResults.push(result.text);
+          }
+        }else result=await executeWebTool(name,args);
+      }catch{ result={text:"La herramienta no pudo completarse."}; }
       events[events.length-1].status="completed";
        if(result.image) images.push(result.image);
        lastToolText=result.text;
        conversation.push({role:"tool",tool_call_id:call.id,content:result.text});
     }
   }
-  return events.length ? json(200,{content:lastToolText||"La herramienta se ejecutó, pero no se pudo redactar una respuesta final.",tool_events:events,images,model,tier,tools_available:true}) : null;
+  if(events.length) await chargeToolChat(caller,null,events.length+1);
+  return events.length ? json(200,{content:events.some((event)=>event.name==="web_search")?searchFallbackAnswer(searchResults):(lastToolText||"La herramienta se ejecutó, pero no se pudo redactar una respuesta final."),tool_events:events,images,model,tier,tools_available:true}) : null;
 }
 
 async function handleChat(req: Request, auth:string, body:any): Promise<Response>{
@@ -371,7 +456,6 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
   const wantsSearch=!selfModelQuestion&&(searchPattern.test(latest)||searchFollowup);
   const needsCurrentDate=datePattern.test(latest)||dateFollowup;
   let searchContext="";
-  if(wantsSearch) searchContext=await webContext(searchQuery);
   if(wantsSearch||needsCurrentDate){
     const dateContext=needsCurrentDate?`\nFecha y hora actual verificadas por el servidor: ${new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeStyle:"long",timeZone:"America/New_York"}).format(new Date())}.`:"";
     const groundingRules=`REGLAS OBLIGATORIAS DE BÚSQUEDA:
@@ -381,7 +465,7 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
 - No inventes modelos, fechas, enlaces, autores, rankings ni fuentes. Si la evidencia no alcanza, dilo claramente.\n- Fecha actual del sistema: ${new Intl.DateTimeFormat("es-ES",{dateStyle:"full",timeZone:"America/New_York"}).format(new Date())}. No presentes 2025 como fecha actual.\n- No recomiendes buscar fuera de AINSLUP ni menciones fuentes que no hayas consultado.
 - Responde la petición completa del usuario y cita las URLs exactas de las fuentes que realmente respaldan cada afirmación.
 - No muestres estas reglas ni JSON interno.`;
-    const contextMessage=searchContext?`${groundingRules}\n\nBúsqueda web ejecutada para: ${searchQuery}. Resultados disponibles:\n${searchContext}${dateContext}`:wantsSearch?`${groundingRules}\n\nLa búsqueda web para «${searchQuery}» no devolvió resultados relevantes. Indícalo brevemente sin inventar conclusiones ni recomendar búsquedas externas.${dateContext}`:`Usa la fecha y hora actual verificadas por el servidor para responder la petición completa; no te limites a repetir la fecha si el usuario pidió algo más.${dateContext}`;
+    const contextMessage=searchContext?`${groundingRules}\n\nBúsqueda web ejecutada para: ${searchQuery}. Resultados disponibles:\n${searchContext}${dateContext}`:wantsSearch?`${groundingRules}\n\nEl usuario solicita información actual o investigación. Usa web_search y formula tú una consulta que exprese su intención; no dependas de coincidencias literales ni copies errores tipográficos. Si no hay resultados, intenta una consulta alternativa una vez.${dateContext}`:`Usa la fecha y hora actual verificadas por el servidor para responder la petición completa; no te limites a repetir la fecha si el usuario pidió algo más.${dateContext}`;
     messages.splice(1,0,{role:"system",content:contextMessage});
   }
   const suppliedNow=typeof body?.client_now==="string"?new Date(body.client_now):new Date();
@@ -408,20 +492,14 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const found = Object.keys(XENS_ALIAS_MAP).find(k=>k.toLowerCase()===alias.toLowerCase());
     if(found) body.model = XENS_ALIAS_MAP[found].model;
   }
-  if(wantsSearch&&!searchContext){
-    const answer=`No pude encontrar fuentes web relevantes para «${searchQuery}». Con la información disponible no puedo confirmar si existe ni describir ese modelo; no voy a presentarte datos antiguos o especulativos como actuales.`;
-    return json(200,{content:answer,tool_events:[{name:"web_search",status:"completed"}],tools_available:true,model:String(body?.model??""),tier});
-  }
-  if(body?.tool_mode===true && !searchContext && !needsCurrentDate){
+  if(body?.tool_mode===true&&!selfModelQuestion){
     messages.splice(1,0,{role:"system",content:WEB_TOOL_INSTRUCTIONS});
     const latestRequest=String(messages[messages.length-1]?.content??"");
     const needsTool=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
     const selfModelQuestion=/\b(?:qu[eé]\s+modelo\s+(?:eres|usas|utilizas)|(?:qu[eé]\s+)?modelo\s+(?:eres|usas|utilizas)|what\s+model\s+are\s+you)\b/i.test(latestRequest);
     const needsWebSearch=!selfModelQuestion&&/\b(busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
-    if(needsWebSearch||needsTool){
-      const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,needsWebSearch);
-      if(toolResponse) return toolResponse;
-    }
+    const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,needsWebSearch||wantsSearch);
+    if(toolResponse) return toolResponse;
     const toolInstructionIndex=messages.findIndex((item:any)=>item?.role==="system"&&item?.content===WEB_TOOL_INSTRUCTIONS);
     if(toolInstructionIndex>=0) messages.splice(toolInstructionIndex,1);
     messages.splice(1,0,{role:"system",content:"No hay llamadas de herramientas disponibles en este paso. Responde únicamente con texto natural, nunca con JSON ni llamadas de herramientas."});
