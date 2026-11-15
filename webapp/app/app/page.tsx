@@ -266,15 +266,21 @@ export default function AppPage() {
   }
   function openWorkspacePanel(panel: "library"|"images"|"schedule"|"account") { setLibraryOpen(panel==="library"); setImageStudioOpen(panel==="images"); setScheduleOpen(panel==="schedule"); setAccountOpen(panel==="account"); setSettingsOpen(false); setBillingOpen(false); setPrivacyOpen(false); setAccountMenuOpen(false); setComposerMenuOpen(false); setHistoryMenu(null); setSidebarCollapsed(false); setMobileDrawerOpen(false); }
   async function requestWithTools(next: Message[], token: string, memoryContext="", targetConversationId=conversationId) {
-    const latest=String([...next].reverse().find(message=>message.role==="user")?.content??"");
-    const recentAssistant=next.slice(-5).filter(message=>message.role==="assistant").map(message=>String(message.content??"")).join(" ");
+    const latestMessage=[...next].reverse().find(message=>message.role==="user");
+    const latest=messageText(latestMessage?.content??"");
+    const recentAssistant=next.slice(-5).filter(message=>message.role==="assistant").map(message=>messageText(message.content)).join(" ");
     const dateRequest=/\b(fecha|hora|hoy|qué día|que dia|202[0-9]|verifica|comprueba)\b/i.test(latest)||(/\b(dale|sí|si|por favor)\b/i.test(latest)&&/fecha|hora|verific|comprob/i.test(recentAssistant));
-    const searchRequest=/\b(busca|buscar|internet|web|investiga|investígame|investigame|consulta|noticias|precio|clima|fuentes|modelo)\b/i.test(latest);
+    const searchRequest=/\b(busca|buscar|internet|web|investiga|investígame|investigame|consulta|noticias|precio|clima|fuentes)\b/i.test(latest);
+    const imageRequest=/\b(genera|generar|crea|crear|dibuja|dibujar|haz|produce)\b/i.test(latest)&&/\b(imagen|ilustración|ilustracion|dibujo|logo)\b/i.test(latest);
+    if(!dateRequest&&!searchRequest&&!imageRequest){
+      await streamAnswer(next,token,latest,memoryContext,targetConversationId);
+      return;
+    }
     const progressMessages=searchRequest
       ? ["Interpretando tu solicitud y formulando la búsqueda…","Consultando buscadores y reuniendo fuentes…","Revisando la pertinencia de los resultados…","Preparando una respuesta clara con citas…","El análisis sigue en curso; puede tardar un poco más…"]
       : dateRequest
         ? ["Consultando la fecha y hora actuales…","Confirmando la información temporal…","Preparando la respuesta…"]
-        : ["Analizando tu solicitud…","Organizando la información relevante…","Redactando la respuesta…","La respuesta sigue en preparación…"];
+        : ["Preparando la imagen solicitada…","Generando la imagen…","Terminando la respuesta…"];
     let progressIndex=0;
     setGenerationStatus(progressMessages[0]);
     const progressTimer=window.setInterval(()=>{
@@ -283,7 +289,8 @@ export default function AppPage() {
     },4500);
     const controller=new AbortController();
     abortRef.current=controller;
-    const timeout=window.setTimeout(()=>controller.abort(),120000);
+    let timedOut=false;
+    const timeout=window.setTimeout(()=>{timedOut=true;controller.abort();},120000);
     try {
       const r=await fetch(`${EDGE}/chat`,{method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify({messages:memoryContext?[{role:"system",content:memoryContext},...next]:next,xens_model:activeModel==="auto"?defaultModel:activeModel,web_search:true,client_now:new Date().toISOString(),client_timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||"America/New_York",tool_mode:true,stream:false,xens_stream:false}),signal:controller.signal});
       const data=await r.json().catch(()=>({}));
@@ -292,13 +299,93 @@ export default function AppPage() {
       const answer=String(data.content??"").trim();
       if(!answer) throw new Error("AINSLUP no recibió una respuesta del modelo. Inténtalo de nuevo.");
       await revealAnswer(next,answer,Array.isArray(data.images)?data.images:[],targetConversationId);
-    } finally {
+    }catch(error){
+      if(timedOut)throw new Error("La solicitud superó el límite de espera de 120 segundos. Inténtalo de nuevo.");
+      throw error;
+    }finally{
       window.clearInterval(progressTimer);
       window.clearTimeout(timeout);
-      if(abortRef.current===controller) abortRef.current=null;
+      if(abortRef.current===controller)abortRef.current=null;
     }
   }
-  async function streamAnswer(next: Message[], token: string, value: string) { const controller=new AbortController(); abortRef.current=controller; const r=await fetch(`${EDGE}/chat-stream`, { method:"POST", headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json", Accept:"text/event-stream" }, body:JSON.stringify({ messages:next, xens_model:defaultModel, web_search:true, client_now:new Date().toISOString(), client_timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||"America/New_York", stream:true, xens_stream:true }), signal:controller.signal }); if(!r.ok || !r.body) { const detail=await r.text().catch(()=>""); throw new Error(detail || "No se pudo iniciar la generación."); } const reader=r.body.getReader(); const decoder=new TextDecoder(); let buffer=""; let answer=""; setGenerationStatus("AINSLUP está escribiendo…"); const update=(part:string)=>{ answer+=part; setMessages([...next,{role:"assistant",content:answer}]); }; while(true){ const chunk=await reader.read(); if(chunk.done) break; buffer+=decoder.decode(chunk.value,{stream:true}); const events=buffer.split("\n"); buffer=events.pop()||""; for(const line of events){ const raw=line.trim(); if(!raw.startsWith("data:")) continue; const payload=raw.slice(5).trim(); if(payload==="[DONE]") continue; try{ const json=JSON.parse(payload); const delta=json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.message?.content ?? ""; if(delta) update(String(delta)); }catch{} } } if(!answer) throw new Error("La respuesta llegó vacía."); const complete=[...next,{role:"assistant" as const,content:answer}]; setMessages(complete); await saveConversation(complete); loadHistory(); abortRef.current=null; return answer; }
+  async function streamAnswer(next: Message[], token: string, value: string, memoryContext="", targetConversationId=conversationId) {
+    const controller=new AbortController();
+    abortRef.current=controller;
+    let timedOut=false;
+    let started=false;
+    let answer="";
+    let buffer="";
+    let lastPaint=0;
+    const decoder=new TextDecoder();
+    const statusTimer=window.setTimeout(()=>setGenerationStatus("El modelo está preparando la respuesta…"),7000);
+    const timeout=window.setTimeout(()=>{timedOut=true;controller.abort();},120000);
+    setGenerationStatus("Conectando con el modelo…");
+    const update=(force=false)=>{
+      if(conversationIdRef.current!==targetConversationId)return;
+      const now=performance.now();
+      if(force||now-lastPaint>=40){
+        setMessages([...next,{role:"assistant",content:answer}]);
+        lastPaint=now;
+      }
+    };
+    try{
+      const messages=memoryContext?[{role:"system",content:memoryContext},...next]:next;
+      const r=await fetch(`${EDGE}/chat-stream`,{
+        method:"POST",
+        headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json",Accept:"text/event-stream"},
+        body:JSON.stringify({messages,xens_model:activeModel==="auto"?defaultModel:activeModel,web_search:false,client_now:new Date().toISOString(),client_timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||"America/New_York",stream:true,xens_stream:true}),
+        signal:controller.signal
+      });
+      if(!r.ok||!r.body){
+        const detail=await r.text().catch(()=>"");
+        throw new Error(detail||"No se pudo iniciar la generación.");
+      }
+      const reader=r.body.getReader();
+      const consume=(chunk:string)=>{
+        buffer+=chunk;
+        const events=buffer.split("\n");
+        buffer=events.pop()||"";
+        for(const line of events){
+          const raw=line.trim();
+          if(!raw.startsWith("data:"))continue;
+          const payload=raw.slice(5).trim();
+          if(!payload||payload==="[DONE]")continue;
+          try{
+            const json=JSON.parse(payload);
+            const delta=json.choices?.[0]?.delta?.content??json.choices?.[0]?.message?.content??"";
+            const text=typeof delta==="string"?delta:Array.isArray(delta)?delta.filter((part:any)=>part?.type==="text").map((part:any)=>part.text).join(""):"";
+            if(text){
+              if(!started){started=true;window.clearTimeout(statusTimer);setGenerationStatus("AINSLUP está escribiendo…");}
+              answer+=text;
+              update();
+            }
+            if(json.error)throw new Error(String(json.error.message||json.error));
+          }catch(error){
+            if(error instanceof SyntaxError)continue;
+            throw error;
+          }
+        }
+      };
+      while(true){
+        const chunk=await reader.read();
+        if(chunk.done)break;
+        consume(decoder.decode(chunk.value,{stream:true}));
+      }
+      consume(decoder.decode());
+      if(!answer.trim())throw new Error("AINSLUP no recibió una respuesta del modelo. Inténtalo de nuevo.");
+      const complete=[...next,{role:"assistant" as const,content:answer}];
+      if(conversationIdRef.current===targetConversationId)setMessages(complete);
+      await saveConversation(complete,targetConversationId);
+      loadHistory();
+    }catch(error){
+      if(timedOut)throw new Error("La solicitud superó el límite de espera de 120 segundos. Inténtalo de nuevo.");
+      throw error;
+    }finally{
+      window.clearTimeout(statusTimer);
+      window.clearTimeout(timeout);
+      if(abortRef.current===controller)abortRef.current=null;
+    }
+  }
   function cancelGeneration(){ abortRef.current?.abort(); abortRef.current=null; setGenerationStatus("Generación cancelada"); setBusy(false); }
   async function send(e?: FormEvent) {
     e?.preventDefault();
