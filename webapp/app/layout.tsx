@@ -10,6 +10,10 @@ export const metadata: Metadata = {
   description: "AINSLUP es un asistente de inteligencia artificial para conversar, analizar, investigar y terminar tareas.",
   applicationName: "AINSLUP",
   keywords: ["inteligencia artificial", "asistente de IA", "AI assistant", "AINSLUP", "SVY Teck"],
+  verification: {
+    google: "jnHZCjxOFta_xBGguLJuai0mSY4L-2UK4-LBiSxTsME",
+    other: { "msvalidate.01": "41EDC4A0D2C60F9E14AF3D8FB9B1E2A9" },
+  },
   alternates: { canonical: "/" },
   openGraph: {
     type: "website",
@@ -23,5 +27,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="es"><head><meta name="google-site-verification" content="jnHZCjxOFta_xBGguLJuai0mSY4L-2UK4-LBiSxTsME" /></head><body>{children}</body></html>;
+  return <html lang="es"><body>{children}</body></html>;
 }
