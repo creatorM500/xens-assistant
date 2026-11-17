@@ -12,12 +12,15 @@
     "@supabase/ssr": "latest",
     "@supabase/supabase-js": "latest",
     "lucide-react": "^1.66.0",
-    "next": "latest",
+    "next": "16.4.6",
+    "papaparse": "^5.7.1",
+    "pdfjs-dist": "^6.5.438",
     "react": "latest",
     "react-dom": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
+    "@types/papaparse": "^5.5.2",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "typescript": "latest"
