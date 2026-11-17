@@ -377,10 +377,11 @@ async function chargeToolChat(caller:any, usage:any, actionCount:number, model="
     if(lic) await rpc("record_usage_tokens",{p_license_id:lic.id,p_period:period,p_tokens_in:Number(usage?.prompt_tokens??0),p_tokens_out:Number(usage?.completion_tokens??0)});
   }
 }
-async function handleWebToolChat(messages:any[], tier:string, requestedModel:string, caller:any, forceSearch:boolean=false):Promise<Response|null>{
+async function handleWebToolChat(messages:any[], tier:string, requestedModel:string, caller:any, forceSearch:boolean=false, maxSearches:number=2):Promise<Response|null>{
   const rawConversation=[{role:"system",content:WEB_TOOL_INSTRUCTIONS},...messages.map(item=>({...item}))];
   const systemMessages=rawConversation.filter((item:any)=>item?.role==="system").map((item:any)=>String(item.content??"").trim()).filter(Boolean);
-  const searchGuidance=`\n\nSi utilizas web_search, interpreta semánticamente la intención y redacta una consulta breve; no copies palabras de relleno ni errores tipográficos. Comprueba la pertinencia y fiabilidad de los resultados. Para rankings de modelos de IA, prioriza leaderboards y benchmarks independientes reconocidos (por ejemplo, Artificial Analysis, LMArena o Hugging Face) frente a diccionarios y listicles comerciales. Si los resultados son irrelevantes o débiles, intenta una consulta alternativa enfocada en benchmarks o fuentes primarias. Responde con las fuentes recuperadas y cita sus URLs; si tras ese intento no hay fuentes fiables, dilo sin inventar.`;
+  const boundedSearches=Math.max(2,Math.min(4,Math.floor(maxSearches)||2));
+  const searchGuidance=`\n\nSi utilizas web_search, interpreta semánticamente la intención y redacta una consulta breve; no copies palabras de relleno ni errores tipográficos. Comprueba la pertinencia y fiabilidad de los resultados. ${boundedSearches>2?`Para esta investigación en profundidad, reúne evidencia con hasta ${boundedSearches} consultas distintas centradas en aspectos diferentes.`:"Limita la búsqueda a dos consultas distintas."} Para rankings de modelos de IA, prioriza leaderboards y benchmarks independientes reconocidos (por ejemplo, Artificial Analysis, LMArena o Hugging Face) frente a diccionarios y listicles comerciales. Si los resultados son irrelevantes o débiles, intenta una consulta alternativa enfocada en benchmarks o fuentes primarias. Responde con las fuentes recuperadas y cita sus URLs; si tras ese intento no hay fuentes fiables, dilo sin inventar.`;
   const conversation=[{role:"system",content:systemMessages.join("\n\n")+searchGuidance},...rawConversation.filter((item:any)=>item?.role!=="system")];
   const events:any[]=[]; const images:string[]=[]; const searchResults:string[]=[]; let lastToolText="";
   const totalUsage={prompt_tokens:0,completion_tokens:0};
@@ -397,9 +398,9 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
   if(!candidates.length) return null;
   let model=preferred;
   const searchedQueries=new Set<string>();
-  for(let round=0;round<4;round++){
+  for(let round=0;round<boundedSearches+2;round++){
     let response:Response|null=null;
-    const finalizing=round>=2;
+    const finalizing=round>=boundedSearches;
     let roundConversation=conversation;
     if(finalizing){
       const sourceMessages=messages.filter((item:any)=>item?.role!=="tool"&&!(item?.role==="assistant"&&Array.isArray(item?.tool_calls))&&!(item?.role==="system"&&(item?.content===WEB_TOOL_INSTRUCTIONS||/El usuario solicita información actual o investigación|BÚSQUEDA SOLICITADA/i.test(String(item?.content??"")))));
@@ -422,7 +423,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
         response=attempt; model=candidate.model; break;
       }
     }
-    if(!response&&finalizing&&round<3)continue;
+    if(!response&&finalizing&&round<boundedSearches+1)continue;
     if(!response) return events.length ? json(200,{content:events.some((event)=>event.name==="web_search")?searchFallbackAnswer(searchResults):(lastToolText||"La herramienta se ejecutó, pero no se pudo redactar una respuesta final."),tool_events:events,images,model,tier,tools_available:true}) : null;
     const data=await response.json().catch(()=>({}));
     totalUsage.prompt_tokens+=Number(data?.usage?.prompt_tokens??0)||0;
@@ -444,7 +445,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
       const rawContent=String(msg.content??"");
       let content=safeAssistantContent(rawContent);
       const leakedSearchBlock=events.some((event)=>event.name==="web_search")&&/(?:^|\n)Consulta:\s*.+\nFuente:\s*.+\nURL:\s*https?:\/\//m.test(content);
-      if(finalizing&&(!content||isToolPayload(rawContent)||leakedSearchBlock)&&round<3)continue;
+      if(finalizing&&(!content||isToolPayload(rawContent)||leakedSearchBlock)&&round<boundedSearches+1)continue;
       if(leakedSearchBlock||finalizing&&(!content||isToolPayload(rawContent)))content=searchFallbackAnswer(searchResults);
       await chargeToolChat(caller,totalUsage,events.length+1,String(data?.model??model));
       return json(200,{content,tool_events:events,images,model:data?.model??model,tier,tools_available:true});
@@ -460,7 +461,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
           const key=query.toLocaleLowerCase();
           if(!query) result={text:"La consulta llegó vacía. Formula una consulta breve a partir de la intención del usuario."};
           else if(searchedQueries.has(key)) result={text:"Esa consulta ya se realizó. No la repitas: responde con la evidencia que ya tienes."};
-          else if(searchedQueries.size>=2) result={text:"Ya se hicieron dos consultas web (la inicial y una reformulación). No busques más; responde ahora con la evidencia recuperada y señala sus límites."};
+          else if(searchedQueries.size>=boundedSearches) result={text:`Ya se hicieron ${boundedSearches} consultas web. No busques más; responde ahora con la evidencia recuperada y señala sus límites.`};
           else{
             searchedQueries.add(key);result=await executeWebTool(name,{...args,query});
             if(result.text&&!/no se encontraron resultados p[uú]blicos/i.test(result.text))searchResults.push(result.text);
@@ -553,7 +554,8 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     const needsTool=/\b(qué\s+d[ií]a|que dia|fecha|hora|hoy|busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
     const selfModelQuestion=/\b(?:qu[eé]\s+modelo\s+(?:eres|usas|utilizas)|(?:qu[eé]\s+)?modelo\s+(?:eres|usas|utilizas)|what\s+model\s+are\s+you)\b/i.test(latestRequest);
     const needsWebSearch=!selfModelQuestion&&/\b(busca|buscar|búsqueda|internet|web|investiga|investigar|consulta|fuentes?|clima|tiempo|temperatura|noticias?|precio|cotización|actual|ahora|últim[oa]|reciente|semana|\d{4})\b/i.test(latestRequest);
-    const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,needsWebSearch||wantsSearch);
+     const deepResearch=/\b(investiga\s+(?:a\s+fondo|en\s+profundidad)|investigaci[oó]n\s+profunda|deep\s+research|informe\s+detallado)\b/i.test(latestRequest);
+     const toolResponse=await handleWebToolChat(messages,tier,String(body?.model??""),caller,needsWebSearch||wantsSearch||deepResearch,deepResearch?4:2);
     if(toolResponse) return toolResponse;
     const toolInstructionIndex=messages.findIndex((item:any)=>item?.role==="system"&&item?.content===WEB_TOOL_INSTRUCTIONS);
     if(toolInstructionIndex>=0) messages.splice(toolInstructionIndex,1);
