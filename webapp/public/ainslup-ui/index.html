@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="obsidian" data-density="comfortable">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AINSLUP — Asistente de IA Adaptativo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell" id="appShell">
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
+      <div class="sidebar-header">
+        <a href="#" class="brand" id="brandHomeBtn" title="Ir al inicio">
+          <span class="brand-logo" aria-hidden="true">
+            <svg viewBox="0 0 28 28" fill="none">
+              <path d="M13 3L15.1 9.4L21.5 11.5L15.1 13.6L13 20L10.9 13.6L4.5 11.5L10.9 9.4L13 3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+              <path d="M21.5 17L22.4 19.6L25 20.5L22.4 21.4L21.5 24L20.6 21.4L18 20.5L20.6 19.6L21.5 17Z" fill="currentColor"/>
+            </svg>
+          </span>
+          <span class="brand-name">AINSLUP</span>
+        </a>
+        <button class="icon-btn circle-btn" id="collapseSidebarBtn" title="Ocultar barra lateral (Ctrl+B)" aria-label="Ocultar barra lateral">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <div class="sidebar-action">
+        <button class="new-chat-btn" id="newChatBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>Nueva conversación</span>
+        </button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item" data-view="library">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+          </svg>
+          <span>Biblioteca</span>
+        </button>
+        <button class="nav-item" data-view="images">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <polyline points="21 15 16 10 5 21"></polyline>
+          </svg>
+          <span>Imágenes</span>
+        </button>
+        <button class="nav-item" data-view="scheduled">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+            <circle cx="15" cy="16" r="2"></circle>
+          </svg>
+          <span>Programado</span>
+        </button>
+        <button class="nav-item" id="openPersonalizeBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="21" x2="4" y2="14"></line>
+            <line x1="4" y1="10" x2="4" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12" y2="3"></line>
+            <line x1="20" y1="21" x2="20" y2="16"></line>
+            <line x1="20" y1="12" x2="20" y2="3"></line>
+            <line x1="1" y1="14" x2="7" y2="14"></line>
+            <line x1="9" y1="8" x2="15" y2="8"></line>
+            <line x1="17" y1="16" x2="23" y2="16"></line>
+          </svg>
+          <span>Personalizar</span>
+          <span class="nav-badge" id="personalizeActiveDot" title="Instrucciones activas"></span>
+        </button>
+      </nav>
+
+      <div class="sidebar-section">
+        <div class="section-label">ESPACIO DE TRABAJO</div>
+        <button class="workspace-pill active" id="currentWorkspaceBtn" data-view="chat">
+          <span class="pulse-ring"></span>
+          <span id="workspaceLabel">Conversación actual</span>
+        </button>
+      </div>
+
+      <div class="sidebar-history-wrap">
+        <div class="history-header">
+          <span class="section-label">HISTORIAL</span>
+          <div class="history-actions">
+            <button class="icon-btn tiny" id="openSearchModalBtn" title="Buscar en historial (Ctrl+K)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="7"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+            </button>
+            <button class="icon-btn tiny" id="toggleHistoryBtn" title="Contraer historial">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="18 15 12 9 6 15"></polyline>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="history-scroll" id="historyList"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="user-card" id="userProfileBtn" aria-expanded="false">
+          <div class="user-avatar" id="userAvatarInitial">D</div>
+          <div class="user-meta">
+            <div class="user-name" id="userNameDisplay">Usuario</div>
+            <div class="user-plan" id="authStatus">Sin iniciar sesión</div>
+          </div>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        <div class="popover-menu user-popover" id="userPopover" hidden>
+          <div class="popover-header">
+            <div class="popover-title" id="popoverUserEmail">Conecta tu cuenta AINSLUP</div>
+            <span class="plan-chip" id="authPlanChip">LOCAL</span>
+          </div>
+          <button class="popover-item" id="menuConnectBtn">
+            <span>Iniciar sesión para chatear</span>
+          </button>
+          <button class="popover-item danger" id="menuLogoutBtn" hidden>
+            <span>Cerrar sesión</span>
+          </button>
+          <button class="popover-item" id="menuShortcutsBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"></path></svg>
+            <span>Atajos de teclado</span>
+          </button>
+          <button class="popover-item" id="menuExportChatBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>Exportar conversación (.md)</span>
+          </button>
+          <div class="popover-divider"></div>
+          <button class="popover-item danger" id="menuClearHistoryBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6M14 11v6"></path></svg>
+            <span>Limpiar historial local</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-area" id="mainArea">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu-btn" id="openSidebarBtn" title="Mostrar barra lateral (Ctrl+B)" aria-label="Abrir menú">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <div class="topbar-title-group">
+            <span class="topbar-chat-title" id="currentChatTitle">Nueva conversación</span>
+            <span class="incognito-badge" id="incognitoBadge" hidden>Temporal</span>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <button class="icon-btn ghost-pill" id="tempChatBtn" title="Chat temporal (no se guarda en el historial)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"></path>
+              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"></path>
+              <line x1="1" y1="1" x2="23" y2="23"></line>
+            </svg>
+            <span class="hide-sm">Temporal</span>
+          </button>
+
+          <div class="status-cluster">
+            <div class="cluster-pill model-quick-btn" id="topModelBadge" role="status" aria-label="Selección automática de modelo" title="Modelo automático">
+              <span class="status-dot"></span>
+              <span id="topModelName">Automático</span>
+            </div>
+
+            <span class="cluster-pill preview-status" id="connectionBadge">Sin conectar</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="workspace-split">
+        <div class="workspace-primary">
+          <section class="view-section active" id="view-chat">
+            <div class="chat-scroll" id="chatScroll">
+              <div class="empty-state" id="emptyState">
+                <div class="hero-sparkle" aria-hidden="true">
+                  <svg viewBox="0 0 48 48" fill="none">
+                    <path d="M24 4L28.8 19.2L44 24L28.8 28.8L24 44L19.2 28.8L4 24L19.2 19.2L24 4Z" fill="url(#ainslupSparkle)"/>
+                    <defs>
+                      <linearGradient id="ainslupSparkle" x1="4" y1="4" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#9e8cff"/>
+                        <stop offset="1" stop-color="#6d5efc"/>
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                </div>
+                <h1 class="hero-title" id="heroGreeting">¿En qué trabajamos?</h1>
+                <p class="hero-subtitle">Piensa, crea y resuelve con un asistente que se adapta a ti.</p>
+
+                <div class="suggestion-grid" id="suggestionCards">
+                  <button class="suggestion-card" data-prompt="Ayúdame a organizar mi semana por bloques de enfoque, prioridades y descansos: ">
+                    <div class="card-head">
+                      <span class="card-icon">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L14.4 9.6L22 12L14.4 14.4L12 22L9.6 14.4L2 12L9.6 9.6L12 2Z"/></svg>
+                      </span>
+                      <span class="card-title">Organizar</span>
+                    </div>
+                    <p class="card-desc">Ayúdame a organizar mi semana:</p>
+                  </button>
+
+                  <button class="suggestion-card" data-prompt="Analiza este problema paso a paso, identifica riesgos y propón 3 soluciones claras: ">
+                    <div class="card-head">
+                      <span class="card-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6a3 3 0 0 0-3 3v6a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V9a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/></svg>
+                      </span>
+                      <span class="card-title">Analizar</span>
+                    </div>
+                    <p class="card-desc">Analiza este problema paso a paso:</p>
+                  </button>
+
+                  <button class="suggestion-card" data-prompt="Investiga y resume en puntos clave con ejemplos prácticos sobre: ">
+                    <div class="card-head">
+                      <span class="card-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg>
+                      </span>
+                      <span class="card-title">Investigar</span>
+                    </div>
+                    <p class="card-desc">Investiga y resume:</p>
+                  </button>
+
+                  <button class="suggestion-card" data-prompt="Escribe un correo profesional corto, claro y persuasivo para: ">
+                    <div class="card-head">
+                      <span class="card-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                      </span>
+                      <span class="card-title">Escribir</span>
+                    </div>
+                    <p class="card-desc">Escribe un correo profesional corto:</p>
+                  </button>
+                </div>
+              </div>
+
+              <div class="messages-list" id="messagesList" hidden></div>
+            </div>
+
+            <div class="composer-dock">
+              <div class="composer-wrapper">
+                <div class="attachments-bar" id="attachmentsPreview" hidden></div>
+
+                <div class="composer-box" id="composerBox">
+                  <textarea
+                    id="promptInput"
+                    rows="1"
+                    placeholder="Escribe una tarea para AINSLUP..."
+                    aria-label="Escribe una tarea para AINSLUP"
+                  ></textarea>
+
+                  <div class="composer-toolbar">
+                    <div class="toolbar-left">
+                      <div class="relative-wrap">
+                        <button class="composer-icon-btn" id="plusMenuBtn" title="Adjuntar archivos o herramientas" aria-expanded="false">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                          </svg>
+                        </button>
+                        <div class="popover-menu plus-popover" id="plusMenu" hidden>
+                          <button class="popover-item" id="uploadFileBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                            <span>Subir archivo o imagen</span>
+                          </button>
+                          <button class="popover-item" id="insertPromptFromLibBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                            <span>Usar plantilla de Biblioteca</span>
+                          </button>
+                          <button class="popover-item" id="createCodeArtifactDemoBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                            <span>Abrir ejemplo de Artifact</span>
+                          </button>
+                        </div>
+                        <input type="file" id="fileInput" multiple hidden accept="image/*,.txt,.md,.json,.csv,.js,.py,.html,.css,.pdf" />
+                      </div>
+
+                      <button class="mode-chip" id="webSearchToggle" aria-pressed="false" title="La búsqueda web no está conectada en esta vista previa">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <line x1="2" y1="12" x2="22" y2="12"></line>
+                          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                        </svg>
+                        <span>Web</span>
+                      </button>
+
+                      <button class="mode-chip" id="deepThinkToggle" aria-pressed="false" title="El razonamiento real requiere conectar el motor de AINSLUP">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                          <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-2.04z"/>
+                          <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-2.04z"/>
+                        </svg>
+                        <span>Razonar</span>
+                      </button>
+                    </div>
+
+                    <div class="toolbar-right">
+                      <div class="relative-wrap">
+                        <button class="claude-model-trigger" id="modelSelectorBtn" aria-expanded="false">
+                          <span class="model-dot" id="composerModelDot"></span>
+                          <span id="composerModelLabel">AINSLUP · Automático</span>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                          </svg>
+                        </button>
+
+                        <div class="model-dropdown" id="modelSelectorDropdown" hidden>
+                          <div class="model-dropdown-head">
+                            <span>Seleccionar modelo</span>
+                            <span class="model-head-sub">Selección gestionada por AINSLUP</span>
+                          </div>
+                          <div class="model-options-list" id="modelOptionsList"></div>
+                          <div class="model-dropdown-footer">
+                            <div class="thinking-row">
+                              <div>
+                                <div class="thinking-title">Pensamiento extendido</div>
+                                <div class="thinking-desc">No está disponible hasta conectar el motor de IA</div>
+                              </div>
+                              <label class="switch">
+                                <input type="checkbox" id="dropdownThinkingSwitch" disabled />
+                                <span class="slider"></span>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button class="composer-icon-btn" id="voiceBtn" title="Dictado por voz">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                          <line x1="12" y1="19" x2="12" y2="23"></line>
+                          <line x1="8" y1="23" x2="16" y2="23"></line>
+                        </svg>
+                      </button>
+
+                      <button class="send-btn" id="sendBtn" title="Enviar mensaje" disabled>
+                        <svg class="icon-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                          <line x1="22" y1="2" x2="11" y2="13"></line>
+                          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                        <svg class="icon-stop" viewBox="0 0 24 24" fill="currentColor" hidden>
+                          <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="composer-footer">
+                  <span class="helper-hint">Enter para enviar · Shift+Enter para nueva línea</span>
+                  <span class="disclaimer">AINSLUP puede cometer errores. Revisa la información importante.</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="view-section subview" id="view-library" hidden>
+            <div class="subview-inner">
+              <div class="subview-header">
+                <div>
+                  <h2>Tu biblioteca</h2>
+                  <p>Prompts, documentos y contenido creativo, organizados en un solo lugar.</p>
+                </div>
+                <button class="primary-btn" id="addCustomPromptBtn">+ Crear prompt</button>
+              </div>
+              <div class="library-tabs" role="tablist" aria-label="Contenido de la biblioteca">
+                <button class="library-tab active" data-library-tab="prompts" role="tab" aria-selected="true">Prompts <span id="promptCount">0</span></button>
+                <button class="library-tab" data-library-tab="documents" role="tab" aria-selected="false">Documentos</button>
+                <button class="library-tab" data-library-tab="media" role="tab" aria-selected="false">Contenido multimedia</button>
+              </div>
+              <div class="library-toolbar">
+                <label class="library-search"><span aria-hidden="true">⌕</span><input id="librarySearch" type="search" placeholder="Buscar en tu biblioteca…" aria-label="Buscar en tu biblioteca"></label>
+                <select id="libraryCategory" aria-label="Filtrar prompts por categoría"><option value="all">Todas las categorías</option></select>
+              </div>
+              <div id="libraryEmpty" class="library-empty" hidden>
+                <strong id="libraryEmptyTitle">Todavía no hay nada aquí</strong>
+                <span id="libraryEmptyText">Guarda prompts que quieras volver a utilizar.</span>
+              </div>
+              <div class="cards-grid-3" id="libraryGrid"></div>
+            </div>
+          </section>
+
+          <section class="view-section subview" id="view-images" hidden>
+            <div class="subview-inner">
+              <div class="image-create-workspace">
+                <div class="image-create-mark" aria-hidden="true">✦</div>
+                <h2>Crear imágenes</h2>
+                <p class="image-create-subtitle">Describe tu idea y prepara una imagen a tu manera.</p>
+                <div class="image-composer">
+                  <textarea id="imagePromptInput" rows="3" placeholder="Describe la imagen" aria-label="Describe la imagen que quieres crear"></textarea>
+                  <div class="image-composer-tools">
+                    <button class="image-attach-btn" id="imageAttachBtn" type="button" title="Adjuntar una imagen de referencia" aria-label="Adjuntar imagen de referencia">＋</button>
+                    <span class="image-mode-chip"><span aria-hidden="true">▧</span> Imágenes</span>
+                    <label class="image-ratio-control">Relación de aspecto
+                      <select id="imageRatioSelect" aria-label="Relación de aspecto">
+                        <option value="auto">Automática</option><option value="1:1">Cuadrada · 1:1</option><option value="4:3">Horizontal · 4:3</option><option value="16:9">Panorámica · 16:9</option><option value="3:4">Vertical · 3:4</option>
+                      </select>
+                    </label>
+                    <button class="primary-btn" id="generateImageBtn" title="Preparar prompt de imagen">Preparar prompt <span aria-hidden="true">→</span></button>
+                  </div>
+                  <input type="file" id="imageReferenceInput" accept="image/*" hidden>
+                  <div class="image-reference-name" id="imageReferenceName" hidden><span class="reference-file-icon" aria-hidden="true">▧</span><span class="reference-file-text"></span><button type="button" id="removeImageReferenceBtn" aria-label="Quitar imagen de referencia">×</button></div>
+                </div>
+                <p class="image-capability-note"><span aria-hidden="true">✦</span> La generación de imágenes estará disponible al conectar el motor visual.</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="view-section subview" id="view-scheduled" hidden>
+            <div class="subview-inner">
+              <div class="subview-header">
+                <div>
+                  <h2>Tareas Programadas</h2>
+                  <p>Organiza recordatorios y rutinas. Por ahora se guardan en este navegador y no se ejecutan automáticamente.</p>
+                </div>
+                <button class="primary-btn" id="addScheduleBtn">+ Nueva tarea</button>
+              </div>
+              <div class="schedule-composer" id="scheduleComposer" hidden>
+                <input id="scheduleTaskInput" type="text" placeholder="¿Qué debería hacer AINSLUP?" aria-label="Descripción de la tarea" required />
+                <input id="scheduleDateInput" type="datetime-local" aria-label="Fecha y hora" required />
+                <select id="scheduleFrequency" aria-label="Frecuencia"><option>Una vez</option><option>Diaria</option><option>Semanal</option><option>Mensual</option></select>
+                <button class="primary-btn" id="saveScheduleBtn">Guardar borrador</button>
+              </div>
+              <div class="schedule-filters" id="scheduleFilters">
+                <button class="active" data-schedule-filter="all">Todas</button><button data-schedule-filter="pending">Pendientes</button><button data-schedule-filter="done">Completadas</button>
+              </div>
+              <div class="schedule-list" id="scheduledList">Aún no tienes tareas guardadas.</div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="artifact-panel" id="artifactPanel" hidden>
+          <div class="artifact-header">
+            <div class="artifact-meta">
+              <span class="artifact-badge" id="artifactLang">HTML</span>
+              <h3 id="artifactTitle">Vista previa</h3>
+            </div>
+            <div class="artifact-controls">
+              <div class="segmented-tabs">
+                <button class="seg-btn active" id="artifactTabPreview">Vista previa</button>
+                <button class="seg-btn" id="artifactTabCode">Código</button>
+              </div>
+              <button class="icon-btn tiny" id="copyArtifactBtn" title="Copiar código">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+              <button class="icon-btn tiny" id="downloadArtifactBtn" title="Descargar archivo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </button>
+              <button class="icon-btn tiny" id="closeArtifactBtn" title="Cerrar panel">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="artifact-body">
+            <iframe id="artifactPreviewFrame" sandbox="allow-scripts" title="Vista previa del Artifact"></iframe>
+            <pre class="artifact-code" id="artifactCodeContent" hidden></pre>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="personalizeModal" hidden>
+    <div class="modal-dialog personalize-dialog" role="dialog" aria-modal="true" aria-labelledby="personalizeModalTitle">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <span class="modal-icon-purple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line>
+              <line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line>
+            </svg>
+          </span>
+          <div>
+            <h2 id="personalizeModalTitle">Personalizar AINSLUP</h2>
+            <p>Personaliza la apariencia y las preferencias de respuesta de AINSLUP.</p>
+          </div>
+        </div>
+        <button class="icon-btn" id="closePersonalizeBtn" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-split">
+        <div class="modal-tabs" role="tablist">
+          <button class="modal-tab active" data-tab="instructions">Instrucciones</button>
+          <button class="modal-tab" data-tab="appearance">Estilo y Apariencia</button>
+          <button class="modal-tab" data-tab="memory">Memoria</button>
+          <button class="modal-tab" data-tab="api">Estado</button>
+        </div>
+
+        <div class="modal-content">
+          <div class="tab-pane active" id="tab-instructions">
+            <div class="info-banner">Tus preferencias se aplican al chat cuando inicias sesión con tu cuenta AINSLUP.</div>
+            <div class="form-group">
+              <label for="prefUserName">¿Cómo quieres que AINSLUP te llame?</label>
+              <input type="text" id="prefUserName" placeholder="Ej: Diego" />
+            </div>
+            <div class="form-group">
+              <label for="prefUserRole">¿A qué te dedicas o en qué trabajas normalmente?</label>
+              <textarea id="prefUserRole" rows="2" placeholder="Ej: Desarrollo web, diseño de producto y automatización con IA."></textarea>
+            </div>
+            <div class="form-group">
+              <label>Tono preferido para las respuestas</label>
+              <div class="tone-grid" id="toneSelectorGrid">
+                <button type="button" class="tone-card active" data-tone="equilibrado">
+                  <strong>Equilibrado</strong>
+                  <span>Claro, natural y preciso</span>
+                </button>
+                <button type="button" class="tone-card" data-tone="conciso">
+                  <strong>Conciso</strong>
+                  <span>Directo al punto, sin relleno</span>
+                </button>
+                <button type="button" class="tone-card" data-tone="tecnico">
+                  <strong>Técnico</strong>
+                  <span>Enfoque senior en arquitectura</span>
+                </button>
+                <button type="button" class="tone-card" data-tone="creativo">
+                  <strong>Creativo</strong>
+                  <span>Ideas originales y expresivas</span>
+                </button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="prefCustomInstructions">Instrucciones personalizadas globales</label>
+              <textarea id="prefCustomInstructions" rows="3" placeholder="Ej: Responde siempre en español, usa listas cortas y prioriza soluciones prácticas con código limpio."></textarea>
+            </div>
+          </div>
+
+          <div class="tab-pane" id="tab-appearance" hidden>
+            <div class="form-group">
+              <label>Tema de la interfaz</label>
+              <div class="theme-options" id="themeOptions">
+                <button type="button" class="theme-chip active" data-theme-val="obsidian">Obsidiana Morado (Original)</button>
+                <button type="button" class="theme-chip" data-theme-val="midnight">Medianoche OLED</button>
+                <button type="button" class="theme-chip" data-theme-val="light">Claro Suave</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Tono de acento morado</label>
+              <div class="accent-swatches" id="accentSwatches">
+                <button type="button" class="swatch active" data-accent="#6d5efc" style="--sw:#6d5efc" title="Morado AINSLUP"></button>
+                <button type="button" class="swatch" data-accent="#8c7cff" style="--sw:#8c7cff" title="Lavanda Eléctrico"></button>
+                <button type="button" class="swatch" data-accent="#5b46f6" style="--sw:#5b46f6" title="Índigo Profundo"></button>
+                <button type="button" class="swatch" data-accent="#a855f7" style="--sw:#a855f7" title="Amatista"></button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Densidad de lectura</label>
+              <div class="theme-options" id="densityOptions">
+                <button type="button" class="theme-chip active" data-density-val="comfortable">Cómoda (Estilo Claude)</button>
+                <button type="button" class="theme-chip" data-density-val="compact">Compacta</button>
+              </div>
+            </div>
+
+            <div class="toggle-row">
+              <div>
+                <strong>Mostrar sugerencias en inicio</strong>
+                <span>Muestra las 4 tarjetas rápidas al abrir un chat nuevo</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="prefShowSuggestions" checked />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="tab-pane" id="tab-memory" hidden>
+            <div class="toggle-row">
+              <div>
+                <strong>Memoria adaptativa activada</strong>
+                <span>Incluye estas preferencias locales en el contexto de tus conversaciones</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="prefMemoryEnabled" checked />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="memory-add-row">
+              <input type="text" id="newMemoryInput" placeholder="Añadir recuerdo manual (ej: Uso React y Tailwind)..." />
+              <button type="button" class="primary-btn" id="addMemoryBtn">Añadir</button>
+            </div>
+            <div class="memory-list" id="memoryList"></div>
+          </div>
+
+          <div class="tab-pane" id="tab-api" hidden>
+            <div class="info-banner">
+              <strong>Conexión segura:</strong> el chat usa tu sesión de AINSLUP y el backend oficial. Las claves de los modelos permanecen en el servidor; no las introduzcas en esta página.
+            </div>
+            <p class="connection-status"><span class="status-dot"></span> <span id="connectionStatusText">Sin iniciar sesión</span></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="ghost-btn" id="resetPersonalizeBtn">Restablecer valores</button>
+        <div class="footer-right-btns">
+          <button class="ghost-btn" id="cancelPersonalizeBtn">Cancelar</button>
+          <button class="primary-btn" id="savePersonalizeBtn">Guardar cambios</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="searchModal" hidden>
+    <div class="modal-dialog search-dialog" role="dialog" aria-modal="true">
+      <div class="search-input-row">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="quickSearchInput" placeholder="Buscar conversaciones por título o contenido..." />
+        <kbd>ESC</kbd>
+      </div>
+      <div class="search-results" id="quickSearchResults"></div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="shortcutsModal" hidden>
+    <div class="modal-dialog small-dialog" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3>Atajos de teclado</h3>
+        <button class="icon-btn" id="closeShortcutsBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="shortcuts-list">
+        <div class="shortcut-row"><span>Nueva conversación</span><kbd>Ctrl + Shift + O</kbd></div>
+        <div class="shortcut-row"><span>Buscar en historial</span><kbd>Ctrl + K</kbd></div>
+        <div class="shortcut-row"><span>Mostrar / ocultar barra lateral</span><kbd>Ctrl + B</kbd></div>
+        <div class="shortcut-row"><span>Enviar mensaje</span><kbd>Enter</kbd></div>
+        <div class="shortcut-row"><span>Salto de línea</span><kbd>Shift + Enter</kbd></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="authModal" hidden>
+    <div class="modal-dialog auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <div class="modal-header">
+        <h3 id="authTitle">Conecta tu cuenta AINSLUP</h3>
+        <button class="icon-btn" id="closeAuthModalBtn" type="button" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <p class="auth-description">Usa la misma cuenta de AINSLUP Web. El navegador inicia sesión con Supabase; las claves de los modelos permanecen en el servidor.</p>
+      <form id="authForm" class="auth-form">
+        <label for="authEmail">Correo</label>
+        <input id="authEmail" type="email" autocomplete="email" required />
+        <label for="authPassword">Contraseña</label>
+        <input id="authPassword" type="password" autocomplete="current-password" required />
+        <p class="auth-error" id="authError" role="alert" hidden></p>
+        <button class="primary-btn" id="authSubmitBtn" type="submit">Iniciar sesión</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="backend-config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
