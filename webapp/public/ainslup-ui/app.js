@@ -1306,7 +1306,14 @@
 
   function formatMarkdown(text) {
     const codeBlocks = [];
-    let safe = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang = 'code', code) => {
+    const links = [];
+    const decoded = String(text).replace(/&(#x[0-9a-f]+|#\d+|nbsp|amp|lt|gt|quot|apos);/gi, (entity, code) => {
+      const named = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+      if (code[0] !== '#') return named[code.toLowerCase()] ?? entity;
+      const number = code[1].toLowerCase() === 'x' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+      try { return Number.isFinite(number) ? String.fromCodePoint(number) : entity; } catch { return entity; }
+    });
+    let safe = decoded.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang = 'code', code) => {
       const idx = codeBlocks.length;
       const cleanCode = code.trimEnd();
       const encoded = encodeURIComponent(cleanCode);
@@ -1325,6 +1332,18 @@
       return `@@CODEBLOCK_${idx}@@`;
     });
 
+    safe = safe.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (match, label, rawUrl) => {
+      try {
+        const url = new URL(rawUrl);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return match;
+        const idx = links.length;
+        links.push(`<a href="${escapeHtml(url.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`);
+        return `@@MARKDOWNLINK_${idx}@@`;
+      } catch {
+        return match;
+      }
+    });
+
     safe = escapeHtml(safe)
       .replace(/^### (.*)$/gm, '<h3>$1</h3>')
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -1337,6 +1356,7 @@
 
     safe = `<p>${safe}</p>`.replace(/<p><\/p>/g, '');
     codeBlocks.forEach((html, i) => { safe = safe.replace(`@@CODEBLOCK_${i}@@`, html); });
+    links.forEach((html, i) => { safe = safe.replace(`@@MARKDOWNLINK_${i}@@`, html); });
     return safe;
   }
 
