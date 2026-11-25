@@ -665,11 +665,12 @@
         ...historyWindow.map(message => ({ role: message.role, content: message.text }))
       ];
       const needsWebTools = webSearchEnabled || /\b(busca(?:r)?|búsqueda|internet|web|investiga(?:r|me)?|consulta|noticias?|precio|clima|fuentes?)\b/i.test(userText);
+      const streamReply = !needsWebTools;
       const response = await fetch(backend.chatEndpoint, {
         method: 'POST',
         // Supabase Edge Functions currently allow Authorization and
         // Content-Type in CORS, but not the Auth REST `apikey` header.
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', Accept: streamReply ? 'text/event-stream' : 'application/json' },
         body: JSON.stringify({
           messages,
           xens_model: deepThinkEnabled ? 'Think' : state.selectedModelId,
@@ -677,19 +678,67 @@
           web_search: needsWebTools,
           client_now: new Date().toISOString(),
           client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
-          stream: false,
-          xens_stream: false
+          stream: streamReply,
+          xens_stream: streamReply
         }),
         signal: controller.signal
       });
-      const data = await response.json().catch(() => ({}));
+      let data = {};
+      let replyText = '';
+      if (response.ok && response.headers.get('content-type')?.includes('text/event-stream') && response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let prose = null;
+        const renderDelta = (delta) => {
+          if (!delta) return;
+          replyText += delta;
+          if (currentChatId !== targetChatId) return;
+          if (!prose) {
+            loader.querySelector('.typing-dots')?.remove();
+            prose = document.createElement('div');
+            prose.className = 'assistant-prose';
+            loader.querySelector('.assistant-content')?.appendChild(prose);
+          }
+          prose.innerHTML = formatMarkdown(replyText);
+          scrollToBottom();
+        };
+        const consumeSseLine = (line) => {
+          const raw = line.trim();
+          if (!raw.startsWith('data:')) return;
+          const payload = raw.slice(5).trim();
+          if (!payload || payload === '[DONE]') return;
+          let event;
+          try { event = JSON.parse(payload); } catch { return; }
+          if (event.error) throw new Error(String(event.error.message || event.error));
+          const delta = event.choices?.[0]?.delta?.content ?? event.choices?.[0]?.message?.content ?? '';
+          if (typeof delta === 'string') renderDelta(delta);
+          else if (Array.isArray(delta)) renderDelta(delta.filter(part => part?.type === 'text').map(part => part.text || '').join(''));
+        };
+        const consumeSseChunk = (chunk, final = false) => {
+          buffer += chunk;
+          const lines = buffer.split(/\r?\n/);
+          buffer = final ? '' : lines.pop() || '';
+          if (final && lines.length === 1 && lines[0]) consumeSseLine(lines[0]);
+          else lines.forEach(consumeSseLine);
+        };
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          consumeSseChunk(decoder.decode(value, { stream: true }));
+        }
+        consumeSseChunk(decoder.decode(), true);
+      } else {
+        data = await response.json().catch(() => ({}));
+        replyText = String(data.content || '').trim();
+      }
       if (response.status === 401) {
         saveAuthSession(null);
         pendingSendAfterAuth = true;
         openAuthModal();
       }
       if (!response.ok) throw new Error(data.detail ? `${data.error || 'Error del modelo'}: ${data.detail}` : data.error || 'No se pudo obtener una respuesta de AINSLUP.');
-      const replyText = String(data.content || '').trim();
+      replyText = replyText.trim();
       if (!replyText) throw new Error('AINSLUP devolvió una respuesta vacía. Inténtalo de nuevo.');
       if (/^(web_search|calculator|get_current_time|generate_image)$/i.test(replyText)) {
         throw new Error('AINSLUP no terminó la herramienta solicitada. Regenera la respuesta para intentarlo otra vez.');
