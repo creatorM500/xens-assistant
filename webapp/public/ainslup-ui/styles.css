@@ -231,6 +231,9 @@ button { cursor: pointer; border: none; background: none; }
 .thinking-body { padding: 10px 14px 12px; font-size: 0.82rem; line-height: 1.55; color: var(--text-muted); border-top: 1px solid var(--border-subtle); }
 .thinking-block.collapsed .thinking-body { display: none; }
 .assistant-prose { font-size: 0.965rem; line-height: 1.65; color: var(--text-primary); }
+.assistant-prose a { color: var(--accent-light); text-decoration: underline; text-decoration-color: rgba(140, 124, 255, 0.55); text-underline-offset: 3px; overflow-wrap: anywhere; }
+.assistant-prose a:hover { color: var(--text-primary); text-decoration-color: currentColor; }
+.assistant-prose a:focus-visible { outline: 2px solid var(--accent-light); outline-offset: 2px; border-radius: 2px; }
 .assistant-prose p { margin: 0 0 12px; }
 .assistant-prose p:last-child { margin-bottom: 0; }
 .assistant-prose ul, .assistant-prose ol { margin: 6px 0 12px; padding-left: 22px; }

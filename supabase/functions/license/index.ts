@@ -295,7 +295,7 @@ function searchFallbackAnswer(results:string[]):string{
   }).filter((source,index,all)=>all.findIndex((other)=>other.url===source.url)===index).slice(0,5);
   if(!sources.length)return "No pude obtener fuentes verificables para esta búsqueda. Inténtalo de nuevo con otro enfoque.";
   const cited=sources.slice(0,3);
-  return `En conjunto, los resultados apuntan a lo siguiente:\n${cited.map((source)=>`- ${source.summary?.slice(0,220)||source.title} ([${source.title}](${source.url}))`).join("\n")}\n\nEs una síntesis provisional de los fragmentos disponibles; conviene verificar cualquier dato decisivo en la fuente original.`;
+  return `No pude preparar una síntesis completa con los resultados encontrados. Estos fragmentos son referencias de las fuentes, no una respuesta verificada:\n\n${cited.map((source)=>`- [${source.title}](${source.url})${source.summary?` — ${source.summary.slice(0,220)}`:""}`).join("\n")}\n\nLos fragmentos pueden estar en su idioma original; consulta la fuente para confirmar el contexto.`;
 }
 
 function cleanToolTrace(content:string): string {
