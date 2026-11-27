@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "check": "tsc --noEmit && node --check public/ainslup-ui/app.js",
+    "lint": "npm run check"
   },
   "dependencies": {
     "@supabase/ssr": "latest",

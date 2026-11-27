@@ -331,6 +331,8 @@ button { cursor: pointer; border: none; background: none; }
 .popover-item { width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; font-size: 0.82rem; color: var(--text-primary); text-align: left; }
 .popover-item svg { width: 15px; height: 15px; color: var(--text-secondary); }
 .popover-item:hover { background: var(--bg-hover); }
+.popover-item.legal-link { color: var(--text-secondary); text-decoration: none; }
+.popover-item.legal-link:hover { color: var(--text-primary); }
 .popover-item.danger { color: var(--danger); }
 .popover-item.danger svg { color: var(--danger); }
 .popover-divider { height: 1px; background: var(--border-subtle); margin: 4px 0; }

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
 
-export const metadata: Metadata = { title: "Términos", description: "Términos de uso y disponibilidad de AINSLUP." };
+export const metadata: Metadata = { title: "Términos provisionales", description: "Aviso provisional de disponibilidad de AINSLUP." };
 
-export default function TermsPage(){return <main className="legal"><a href="/">← AINSLUP</a><h1>Términos</h1><p>AINSLUP se ofrece según disponibilidad. Los modelos, proveedores y límites pueden cambiar. Las funciones y precios definitivos se publicarán antes de activar las suscripciones.</p></main>}
+export default function TermsPage(){return <main className="legal"><a href="/">← AINSLUP</a><h1>Términos provisionales</h1><p>AINSLUP Web sigue en preparación. Esta página no es un contrato comercial ni confirma que haya una suscripción o precio activo. No envíes pagos fuera de un checkout oficial de AINSLUP.</p><p>Antes de vender el servicio, el responsable deberá publicar y revisar las condiciones completas: quién ofrece el servicio, precios y renovaciones, cancelación y reembolsos, límites, soporte y tratamiento de reclamaciones.</p><p>Si eres menor de 18 años, pide a tu madre, padre o tutor que revise cualquier uso comercial o pago. No compartas aquí información financiera ni datos personales sensibles.</p><p>Este aviso es provisional y debe revisarlo una persona adulta responsable y, antes de operar, alguien con conocimientos legales de la jurisdicción correspondiente.</p></main>}
