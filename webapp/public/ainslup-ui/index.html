@@ -135,6 +135,9 @@
           <button class="popover-item danger" id="menuLogoutBtn" hidden>
             <span>Cerrar sesión</span>
           </button>
+          <button class="popover-item" id="openBillingBtn" type="button">
+            <span>Planes y facturación</span>
+          </button>
           <button class="popover-item" id="menuShortcutsBtn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"></path></svg>
             <span>Atajos de teclado</span>
@@ -672,6 +675,38 @@
         <button class="primary-btn" id="authSubmitBtn" type="submit">Iniciar sesión</button>
       </form>
     </div>
+  </div>
+
+  <div class="modal-backdrop" id="billingModal" hidden>
+    <section class="modal-dialog billing-dialog" role="dialog" aria-modal="true" aria-labelledby="billingTitle" aria-describedby="billingStatus">
+      <header class="modal-header">
+        <div>
+          <h2 id="billingTitle">Planes y facturación</h2>
+          <p class="billing-subtitle">Consulta el estado de tu cuenta AINSLUP.</p>
+        </div>
+        <button class="icon-btn" id="closeBillingModalBtn" type="button" aria-label="Cerrar facturación">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+        </button>
+      </header>
+      <div class="billing-content">
+        <div class="billing-status" id="billingStatus" role="status">
+          <span class="billing-status-dot"></span>
+          <div><strong>Beta gratuita · Sin cobros</strong><p>Los pagos están desactivados. No puedes comprar ni iniciar una suscripción desde AINSLUP.</p></div>
+        </div>
+        <section aria-labelledby="billingPlansTitle">
+          <h3 id="billingPlansTitle">Planes futuros</h3>
+          <div class="billing-plans">
+            <article class="billing-plan"><span class="billing-plan-name">Lite</span><strong>Próximamente</strong><p>Precio y condiciones aún por definir.</p><button type="button" disabled>Pagos desactivados</button></article>
+            <article class="billing-plan"><span class="billing-plan-name">Pro</span><strong>Próximamente</strong><p>Precio y condiciones aún por definir.</p><button type="button" disabled>Pagos desactivados</button></article>
+            <article class="billing-plan"><span class="billing-plan-name">Premium</span><strong>Próximamente</strong><p>Precio y condiciones aún por definir.</p><button type="button" disabled>Pagos desactivados</button></article>
+          </div>
+        </section>
+        <section class="billing-invoices" aria-labelledby="billingInvoicesTitle">
+          <h3 id="billingInvoicesTitle">Facturas</h3>
+          <p>El historial de facturas aún no está conectado en esta beta.</p>
+        </section>
+      </div>
+    </section>
   </div>
 
   <div class="toast-container" id="toastContainer"></div>

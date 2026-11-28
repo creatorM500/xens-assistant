@@ -76,6 +76,9 @@
     connectionStatusText: document.getElementById('connectionStatusText'),
     menuConnectBtn: document.getElementById('menuConnectBtn'),
     menuLogoutBtn: document.getElementById('menuLogoutBtn'),
+    openBillingBtn: document.getElementById('openBillingBtn'),
+    billingModal: document.getElementById('billingModal'),
+    closeBillingModalBtn: document.getElementById('closeBillingModalBtn'),
     authModal: document.getElementById('authModal'),
     authForm: document.getElementById('authForm'),
     authEmail: document.getElementById('authEmail'),
@@ -951,6 +954,15 @@
     el.plusMenuBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopover(el.plusMenu); });
     el.userProfileBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopover(el.userPopover); });
     el.menuConnectBtn.addEventListener('click', () => { el.userPopover.hidden = true; openAuthModal(); });
+    el.openBillingBtn.addEventListener('click', () => {
+      el.userPopover.hidden = true;
+      el.billingModal.hidden = false;
+      el.closeBillingModalBtn.focus();
+    });
+    el.closeBillingModalBtn.addEventListener('click', () => { el.billingModal.hidden = true; });
+    el.billingModal.addEventListener('click', event => {
+      if (event.target === el.billingModal) el.billingModal.hidden = true;
+    });
     el.menuLogoutBtn.addEventListener('click', async () => {
       el.userPopover.hidden = true;
       if (authSession?.access_token && backend?.supabaseUrl && backend?.publishableKey) {
@@ -1189,6 +1201,7 @@
         el.personalizeModal.hidden = true;
         el.searchModal.hidden = true;
         el.shortcutsModal.hidden = true;
+        el.billingModal.hidden = true;
         if (!el.authModal.hidden) {
           el.authModal.hidden = true;
           pendingSendAfterAuth = false;
