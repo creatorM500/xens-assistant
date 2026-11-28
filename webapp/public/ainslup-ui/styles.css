@@ -167,6 +167,7 @@ button { cursor: pointer; border: none; background: none; }
 .app-shell.sidebar-collapsed .mobile-menu-btn { display: inline-grid; }
 .topbar-title-group { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .topbar-chat-title { font-size: 0.9rem; font-weight: 500; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
+.free-beta-badge { flex: 0 0 auto; padding: 3px 7px; border: 1px solid rgba(97, 209, 144, 0.24); border-radius: 999px; color: var(--status-green); background: rgba(97, 209, 144, 0.08); font-size: 0.64rem; line-height: 1.2; white-space: nowrap; }
 .incognito-badge { font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(140, 124, 255, 0.16); color: var(--accent-light); border: 1px solid rgba(140, 124, 255, 0.3); }
 .topbar-right { display: flex; align-items: center; gap: 10px; }
 .ghost-pill { width: auto; padding: 0 10px; height: 32px; gap: 6px; font-size: 0.8rem; border-radius: 999px; border: 1px solid transparent; display: inline-flex; align-items: center; }
@@ -517,6 +518,7 @@ kbd { font-family: var(--font-mono); font-size: 0.72rem; padding: 3px 7px; borde
   .modal-tabs { width: 100%; flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border-subtle); }
 }
 @media (max-width: 640px) {
+  .free-beta-badge { font-size: 0.6rem; padding: 3px 6px; }
   .suggestion-grid { grid-template-columns: 1fr; }
   .composer-dock { padding: 6px 12px 12px; }
   .chat-scroll { padding: 8px 14px 20px; }

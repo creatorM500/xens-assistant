@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "check": "tsc --noEmit && node --check public/ainslup-ui/app.js",
+    "check": "tsc --noEmit --incremental false && node --check public/ainslup-ui/app.js",
     "lint": "npm run check"
   },
   "dependencies": {

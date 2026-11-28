@@ -50,6 +50,18 @@ supabase functions deploy license --project-ref tzlbgoydgptlhspzdhfu
 La URL resultante queda `https://tzlbgoydgptlhspzdhfu.functions.supabase.co/license`.
 `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` las inyecta la plataforma.
 
+## Beta gratuita y pagos
+
+- `XENS_BILLING_ENABLED` debe permanecer sin configurar o en cualquier valor
+  distinto de `true` durante la beta gratuita. En ese estado, `POST /checkout`
+  responde `403` y no crea una suscripción nueva en PayPal.
+- No lo cambies a `true` hasta que la persona adulta responsable haya aprobado
+  las condiciones, precios y pruebas del flujo de pago.
+- Este bloqueo no cancela acuerdos recurrentes creados directamente en PayPal.
+  La persona titular de la cuenta debe comprobarlos allí.
+- El acceso gratuito todavía puede generar costes para las cuentas de IA y
+  alojamiento del operador. Configura límites y alertas de gasto por separado.
+
 ## Migraciones SQL aplicadas
 
 `../migrations/20260804_0*.sql`: tier CHECK ampliado, `activate_license` endurecida

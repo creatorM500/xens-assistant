@@ -1,16 +1,24 @@
 # AINSLUP Web — commercial launch readiness
 
-**Status: NOT READY for paid/commercial launch.** This is an engineering checklist, not legal advice or a compliance certification. Do not activate live billing based on this document.
+**Status: Prepared for a no-charge beta; not a paid/commercial launch.** A production beta still requires adult-owner review of privacy, audience, and provider settings. This is an engineering checklist, not legal advice or a compliance certification.
 
 ## What the current repository shows
 
 - The current `/app` route loads a static HTML/JS client from `webapp/public/ainslup-ui/`.
 - Chat history and preferences are stored in browser `localStorage`; the current UI does not provide cloud history or account deletion.
 - Sign-in uses Supabase Auth. Chat requests go to the Supabase Edge Function and then to the selected/available model provider. Provider-side retention and contractual settings have not been verified here.
-- The Edge Function contains PayPal checkout/webhook code, but the current main UI has no purchase flow. Whether PayPal credentials, live plans, webhook settings, and database migrations are configured cannot be confirmed from this repository.
+- The Edge Function contains PayPal checkout/webhook code, but the current main UI has no purchase flow. Checkout is now guarded by `XENS_BILLING_ENABLED`, which defaults to disabled. PayPal secrets were not present in the Supabase secret-name listing at review time; existing PayPal subscriptions outside this project were not inspected.
 - The public Terms and Privacy pages are provisional notices, not final commercial terms or a completed privacy policy.
 - The repository has no root `LICENSE` file. This does not establish permission for others to reuse the code or prove that every included asset is cleared for commercial use.
 - The web production build succeeds. An authenticated end-to-end check against the deployed Supabase project, model providers, and PayPal has not been performed.
+
+## Required before any public beta
+
+- A responsible adult must review the target audience, provider data handling, support/privacy contact, and the provisional notices. Do not invite the public until those are accurate for the operator and jurisdiction.
+- Verify production signup, email verification/reset, chat, rate/credit limits, failure handling, and an account support/deletion path using test accounts and non-sensitive data.
+- Deploy the intended Render commit and the billing-disabled Edge Function, then verify in production that `/checkout` returns `403` and no payment approval URL is created.
+- Confirm the adult account owner has configured provider spend limits/alerts. A free-to-users beta can still create usage charges to the operator's AI and hosting accounts; the per-user chat cap is not a global spending cap.
+- Check PayPal directly, with the account owner, for any existing active subscriptions or recurring agreements. Disabling new checkout does not cancel agreements already created at PayPal.
 
 ## Required before charging customers
 
@@ -39,7 +47,7 @@
 
 ## Safe release state until blockers are closed
 
-- Keep AINSLUP marked as a preview; do not advertise paid plans or enable live PayPal.
+- Keep AINSLUP marked as a free beta; do not advertise paid plans or set `XENS_BILLING_ENABLED=true`.
 - Do not put real provider secrets in browser code, git, or support messages.
 - Do not use real customer or sensitive personal data for smoke tests.
 - Ask a parent/guardian or another responsible adult to lead business, legal, account, and payment decisions. No credentials or personal information need to be shared in this repository or chat.
