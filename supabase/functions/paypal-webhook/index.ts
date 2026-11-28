@@ -50,6 +50,7 @@ function json(status: number, body: unknown): Response {
 }
 
 async function paypalToken(): Promise<string | null> {
+  if (!CLIENT_ID || !CLIENT_SECRET) return null;
   const r = await fetch(`${API}/v1/oauth2/token`, {
     method: "POST",
     headers: {
@@ -64,13 +65,16 @@ async function paypalToken(): Promise<string | null> {
 }
 
 /** Verifica la firma del webhook contra la API de PayPal. */
-async function verifyWebhook(req: Request, body: string): Promise<boolean> {
+async function verifyWebhook(req: Request, event: unknown): Promise<boolean> {
   if (!CLIENT_ID || !CLIENT_SECRET) return false;
   const token = await paypalToken();
   if (!token) return false;
-  const url = new URL(req.url);
   const webhookId = Deno.env.get("XENS_PAYPAL_WEBHOOK_ID") ?? "";
-  if (!webhookId) return true; // sin webhook id configurado: confiar (solo para staging)
+  // Fail closed in every environment. Never accept unverified billing events.
+  if (!webhookId) {
+    console.error("XENS_PAYPAL_WEBHOOK_ID no está configurado");
+    return false;
+  }
   const r = await fetch(`${API}/v1/notifications/verify-webhook-signature`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -81,7 +85,7 @@ async function verifyWebhook(req: Request, body: string): Promise<boolean> {
       transmission_sig: req.headers.get("paypal-transmission-sig"),
       transmission_time: req.headers.get("paypal-transmission-time"),
       webhook_id: webhookId,
-      webhook_event: JSON.parse(body),
+      webhook_event: event,
     }),
   });
   const data = await r.json().catch(() => ({}));
@@ -156,7 +160,7 @@ async function setUserTier(uid: string, tier: string): Promise<boolean> {
   }
 }
 
-function handleEvent(event: any): Promise<boolean> {
+async function handleEvent(event: any): Promise<boolean> {
   const type: string = String(event?.event_type ?? "");
   const res: any = event?.resource ?? {};
 
@@ -174,15 +178,15 @@ function handleEvent(event: any): Promise<boolean> {
     const periodEnd = res.billing_info?.next_billing_time ?? null;
     if (type === "BILLING.SUBSCRIPTION.ACTIVATED" || type === "BILLING.SUBSCRIPTION.APPROVED") {
       const ok = await upsertSubscription(uid, plan, "active", periodEnd);
-      await setUserTier(uid, plan);
-      return ok;
+      if (!ok) return false;
+      return await setUserTier(uid, plan);
     }
     if (type === "BILLING.SUBSCRIPTION.CANCELLED" || type === "BILLING.SUBSCRIPTION.SUSPENDED") {
       const ok = await upsertSubscription(uid, plan || "free", "cancelled", null);
-      await setUserTier(uid, "free");
-      return ok;
+      if (!ok) return false;
+      return await setUserTier(uid, "free");
     }
-    return Promise.resolve(true); // otros eventos: ignorar
+    return true; // otros eventos: ignorar
   }
 
   if (type === "PAYMENT.SALE.COMPLETED") {
@@ -190,24 +194,30 @@ function handleEvent(event: any): Promise<boolean> {
     const hinted = String(customRaw ?? "").includes(":") ? String(customRaw).split(":")[1] : "";
     const plan = ["lite", "pro", "premium"].includes(hinted) ? hinted : "free";
     const ok = await upsertSubscription(uid, plan, "active", null);
-    await setUserTier(uid, plan);
-    return ok;
+    if (!ok) return false;
+    return await setUserTier(uid, plan);
   }
 
-  return Promise.resolve(true); // eventos no relevantes: 200 para no reintentar
+  return true; // eventos no relevantes: 200 para no reintentar
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json(405, { error: "Method not allowed" });
   const body = await req.text();
-  const ok = await verifyWebhook(req, body);
+  let event: any;
+  try {
+    event = JSON.parse(body);
+  } catch {
+    return json(400, { error: "Invalid webhook payload" });
+  }
+  const ok = await verifyWebhook(req, event);
   if (!ok) return json(401, { error: "Invalid webhook signature" });
   try {
-    const event = JSON.parse(body);
-    await handleEvent(event);
+    const handled = await handleEvent(event);
+    if (!handled) return json(500, { error: "Webhook processing failed; retry later" });
     return json(200, { received: true });
-  } catch (e) {
-    console.error("handleEvent falló:", e);
-    return json(500, { error: String(e) });
+  } catch (error) {
+    console.error("handleEvent falló:", error);
+    return json(500, { error: "Webhook processing failed; retry later" });
   }
 });

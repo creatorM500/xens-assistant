@@ -36,6 +36,19 @@ const WEB_APP_URL = Deno.env.get("XENS_WEB_APP_URL") ?? "https://ainslup-web.onr
 
 const TIER_CREDITS: Record<string, number> = { free: 5000, lite: 15000, pro: 35000, premium: 125000 };
 
+function checkoutReturnUrl(value: unknown): string {
+  const fallback = new URL("/app", WEB_APP_URL).toString();
+  try {
+    const candidate = new URL(String(value || fallback), WEB_APP_URL);
+    const configuredOrigin = new URL(WEB_APP_URL).origin;
+    return candidate.origin === configuredOrigin && ["https:", "http:"].includes(candidate.protocol)
+      ? candidate.toString()
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 // Facturación unificada: todo por OpenRouter (un solo pago).
 // MISTRAL_KEY queda solo como último recurso si OpenRouter cae.
 const XENS_ALIAS_MAP: Record<string, {provider:string, model:string}> = {
@@ -83,7 +96,9 @@ async function verifyToken(token: string): Promise<Record<string, unknown>|null>
     const header=JSON.parse(new TextDecoder().decode(b64uDecode(h)));
     if(header?.alg!=="HS256"||header?.typ!=="JWT")return null;
     const key=await crypto.subtle.importKey("raw",enc.encode(TOKEN_SECRET),{name:"HMAC",hash:"SHA-256"},false,["verify"]);
-    if(!await crypto.subtle.verify("HMAC",key,b64uDecode(s),enc.encode(`${h}.${p}`)))return null;
+    const signature=b64uDecode(s);
+    const signatureBuffer=signature.buffer.slice(signature.byteOffset,signature.byteOffset+signature.byteLength) as ArrayBuffer;
+    if(!await crypto.subtle.verify("HMAC",key,signatureBuffer,enc.encode(`${h}.${p}`)))return null;
     const payload=JSON.parse(new TextDecoder().decode(b64uDecode(p)));
     if(payload?.iss!=="xens"||typeof payload?.sub!=="string"||!payload.sub)return null;
     if(!Number.isFinite(payload?.exp)||payload.exp*1000<=Date.now())return null;
@@ -245,7 +260,7 @@ const AINSLUP_WEB_IDENTITY = `Identidad y contexto permanente de AINSLUP:
 - Responde normalmente en español si el usuario escribe en español, con tono profesional, claro y cercano.`;
 
 async function paypalAccessToken(): Promise<string|null>{ if(!PAYPAL_CLIENT_ID||!PAYPAL_CLIENT_SECRET) return null; const r=await fetch(`${PAYPAL_API}/v1/oauth2/token`,{method:"POST",headers:{authorization:`Basic ${btoa(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`)}`,"content-type":"application/x-www-form-urlencoded"},body:"grant_type=client_credentials"}); if(!r.ok) return null; const d=await r.json().catch(()=>({})); return d.access_token??null; }
-async function handleCreateCheckout(req:Request, auth:string, body:any):Promise<Response>{ if(!BILLING_ENABLED) return json(403,{error:"Los pagos están desactivados durante la beta gratuita."}); const caller=await resolveAuth(auth); if(caller instanceof Response) return caller; const plan=String(body?.plan??"").toLowerCase(); if(!["lite","pro","premium"].includes(plan)) return json(400,{error:"Plan no válido"}); const planId=PAYPAL_PLANS[plan]; if(!planId) return json(503,{error:"Este plan todavía no está configurado para compra."}); const token=await paypalAccessToken(); if(!token) return json(503,{error:"El sistema de pagos no está disponible ahora."}); const returnUrl=String(body?.return_url||`${WEB_APP_URL}/app`); const cancelUrl=String(body?.cancel_url||`${WEB_APP_URL}/app`); const r=await fetch(`${PAYPAL_API}/v1/billing/subscriptions`,{method:"POST",headers:{authorization:`Bearer ${token}`,"content-type":"application/json","prefer":"return=representation"},body:JSON.stringify({plan_id:planId,custom_id:`${caller.uid}:${plan}`,application_context:{brand_name:"AINSLUP",locale:"es-ES",user_action:"SUBSCRIBE_NOW",return_url:returnUrl,cancel_url:cancelUrl}})}); const data=await r.json().catch(()=>({})); if(!r.ok) return json(502,{error:"No se pudo crear el checkout",detail:data?.message||data?.name}); const approval=data.links?.find((link:any)=>link.rel==="approve")?.href; if(!approval) return json(502,{error:"PayPal no devolvió un enlace de aprobación"}); return json(200,{approval_url:approval,subscription_id:data.id,plan}); }
+async function handleCreateCheckout(req:Request, auth:string, body:any):Promise<Response>{ if(!BILLING_ENABLED) return json(403,{error:"Los pagos están desactivados durante la beta gratuita."}); const caller=await resolveAuth(auth); if(caller instanceof Response) return caller; if(caller.kind!=="account") return json(403,{error:"Las suscripciones requieren una cuenta de AINSLUP."}); const plan=String(body?.plan??"").toLowerCase(); if(!["lite","pro","premium"].includes(plan)) return json(400,{error:"Plan no válido"}); const planId=PAYPAL_PLANS[plan]; if(!planId) return json(503,{error:"Este plan todavía no está configurado para compra."}); const token=await paypalAccessToken(); if(!token) return json(503,{error:"El sistema de pagos no está disponible ahora."}); const returnUrl=checkoutReturnUrl(body?.return_url); const cancelUrl=checkoutReturnUrl(body?.cancel_url); const r=await fetch(`${PAYPAL_API}/v1/billing/subscriptions`,{method:"POST",headers:{authorization:`Bearer ${token}`,"content-type":"application/json","prefer":"return=representation"},body:JSON.stringify({plan_id:planId,custom_id:`${caller.uid}:${plan}`,application_context:{brand_name:"AINSLUP",locale:"es-ES",user_action:"SUBSCRIBE_NOW",return_url:returnUrl,cancel_url:cancelUrl}})}); const data=await r.json().catch(()=>({})); if(!r.ok) return json(502,{error:"No se pudo crear el checkout",detail:data?.message||data?.name}); const approval=data.links?.find((link:any)=>link.rel==="approve")?.href; if(!approval) return json(502,{error:"PayPal no devolvió un enlace de aprobación"}); return json(200,{approval_url:approval,subscription_id:data.id,plan}); }
 
 const WEB_TOOL_SCHEMAS = [
   {type:"function",function:{name:"web_search",description:"Busca información pública y actualizada en Internet. Úsala para noticias, precios, clima, eventos o datos que puedan haber cambiado.",parameters:{type:"object",additionalProperties:false,properties:{query:{type:"string",description:"Una sola consulta de búsqueda en lenguaje natural"}},required:["query"]}}},
@@ -483,6 +498,7 @@ async function handleWebToolChat(messages:any[], tier:string, requestedModel:str
 async function handleChat(req: Request, auth:string, body:any): Promise<Response>{
   const caller=await resolveAuth(auth); if(caller instanceof Response) return caller;
   const tier=caller.tier;
+  const period=new Date().toISOString().slice(0,7);
   const messages=body?.messages; if(!Array.isArray(messages)||messages.length===0) return json(400,{error:"messages required"});
   if(messages.length>100||new TextEncoder().encode(JSON.stringify(body)).length>1_000_000)return json(413,{error:"Conversation is too large"});
   if(messages.some((message:any)=>!message||!["system","user","assistant","tool"].includes(message.role)))return json(400,{error:"Invalid message format"});
@@ -648,7 +664,8 @@ async function handleChat(req: Request, auth:string, body:any): Promise<Response
     await tryUpstream("https://api.mistral.ai/v1/chat/completions",MISTRAL_KEY,
       tier==="free" ? "mistral-small-2506" : model);
   }
-  if(!r||r.status>=400) return json(502,{error:`Model error`,detail:providerFailures.join(" | ")||lastErr});
+  const finalResponse=r as unknown as Response|null;
+  if(!finalResponse||finalResponse.status>=400) return json(502,{error:`Model error`,detail:providerFailures.join(" | ")||lastErr});
   const msg=up?.choices?.[0]?.message??{};
   let content=String(msg.content??"");
   const textualSearch=parseTextToolCall(content);
@@ -707,7 +724,7 @@ async function tryStream(url:string,key:string,mdl:string,messages:any,tools:any
   const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(), 25000);
   try{
     const r=await fetch(url,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify(payload), signal: ctrl.signal});
-    if(r.status>=400 || !r.body){ try{ await r.cancel(); }catch{} clearTimeout(t); return null; }
+    if(r.status>=400 || !r.body){ try{ await r.body?.cancel(); }catch{} clearTimeout(t); return null; }
     // Passthrough directo del body nativo (el re-empaquetado manual con
     // ReadableStream rompía la entrega en este runtime: 200 vacío).
     clearTimeout(t);
@@ -798,7 +815,7 @@ async function resolveAuth(auth:string):Promise<Caller|Response>{
   let tier:string;
   try{tier=await fetchAccountTier(String(uid));}
   catch{return json(503,{error:"Unable to verify account plan"});}
-  return {kind:"account",uid:String(uid),email:String(u?.email??meta.email??""),tier};
+  return {kind:"account",uid:String(uid),email:String(u?.email??""),tier};
 }
 async function accountCredits(uid:string,tier:string,need=1):Promise<{allowed:boolean;remaining:number;limit:number;available:boolean}>{
   const limit=TIER_CREDITS[tier]??TIER_CREDITS.free;

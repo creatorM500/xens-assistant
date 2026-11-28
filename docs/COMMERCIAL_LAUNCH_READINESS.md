@@ -7,7 +7,9 @@
 - The current `/app` route loads a static HTML/JS client from `webapp/public/ainslup-ui/`.
 - Chat history and preferences are stored in browser `localStorage`; the current UI does not provide cloud history or account deletion.
 - Sign-in uses Supabase Auth. Chat requests go to the Supabase Edge Function and then to the selected/available model provider. Provider-side retention and contractual settings have not been verified here.
-- The Edge Function contains PayPal checkout/webhook code, but the current main UI has no purchase flow. Checkout is now guarded by `XENS_BILLING_ENABLED`, which defaults to disabled. PayPal secrets were not present in the Supabase secret-name listing at review time; existing PayPal subscriptions outside this project were not inspected.
+- The Edge Function contains PayPal checkout/webhook code, but the current main UI has no purchase flow. The source now guards checkout with `XENS_BILLING_ENABLED`, defaulting to disabled; this guard has not yet been deployed to the production Edge Function. No `XENS_PAYPAL_*` settings appeared in the Supabase secret-name listing at review time. Existing PayPal subscriptions outside this project were not inspected.
+- The webhook now fails closed without a webhook ID, and returns retryable errors when subscription/tier updates fail. Those changes have not been deployed or tested against PayPal Sandbox.
+- The subscription schema stores only one current plan/status/end date per user. It does not yet keep a PayPal subscription identifier or a webhook event/idempotency ledger. The handler also lacks complete, tested treatment for expiration, failed payments, refunds, reversals, duplicate and out-of-order events.
 - The public Terms and Privacy pages are provisional notices, not final commercial terms or a completed privacy policy.
 - The repository has no root `LICENSE` file. This does not establish permission for others to reuse the code or prove that every included asset is cleared for commercial use.
 - The web production build succeeds. An authenticated end-to-end check against the deployed Supabase project, model providers, and PayPal has not been performed.
@@ -21,6 +23,9 @@
 - Check PayPal directly, with the account owner, for any existing active subscriptions or recurring agreements. Disabling new checkout does not cancel agreements already created at PayPal.
 
 ## Required before charging customers
+
+- Finish the payment lifecycle before treating billing as ready: store provider subscription IDs and event IDs, make webhook processing idempotent and ordered, handle expiry/failure/refund/reversal, and test account-tier/credit rollback.
+- Configure PayPal Sandbox app credentials, all plan IDs and the webhook ID; exercise the full lifecycle in Sandbox without real charges. Only later, after approvals, configure live credentials and repeat production smoke checks.
 
 ### Adult/business and legal review
 
